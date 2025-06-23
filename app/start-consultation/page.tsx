@@ -407,8 +407,8 @@ export default function StartConsultationPage() {
 
               <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="login">{t.authLoginTitle}</TabsTrigger>
-                  <TabsTrigger value="signup">{t.authSignupTitle}</TabsTrigger>
+                  <TabsTrigger value="login" className="text-black data-[state=active]:text-black">{t.authLoginTitle}</TabsTrigger>
+                  <TabsTrigger value="signup" className="text-black data-[state=active]:text-black">{t.authSignupTitle}</TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="login">
@@ -439,10 +439,10 @@ export default function StartConsultationPage() {
                       {isLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
-                          {t.authLoginButton}
+                          Validation
                         </>
                       ) : (
-                        t.authLoginButton
+                        "Validation"
                       )}
                     </Button>
                   </form>
@@ -477,10 +477,10 @@ export default function StartConsultationPage() {
                       {isLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
-                          {t.authSignupButton}
+                          Validation
                         </>
                       ) : (
-                        t.authSignupButton
+                        "Validation"
                       )}
                     </Button>
                   </form>
