@@ -17,9 +17,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group" // Keep for other uses if any, but not for auth mode
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import LanguageSwitcher from "@/components/language-switcher"
 import { useLanguage } from "@/contexts/language-context"
 import { translations, type TranslationKey } from "@/lib/translations"
@@ -43,7 +44,7 @@ interface PricingOption {
   isPopular?: boolean
 }
 
-type AuthView = "signup" | "login" // New state to control the view
+type AuthView = "signup" | "login"
 
 export default function StartConsultationPage() {
   const supabase = getSupabaseBrowserClient()
@@ -55,52 +56,81 @@ export default function StartConsultationPage() {
   const { language } = useLanguage()
   const t = translations[language]
 
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [authView, setAuthView] = useState<AuthView>("signup") // Default to signup view
+  // États d'authentification séparés pour éviter les conflits
+  const [loginEmail, setLoginEmail] = useState("")
+  const [loginPassword, setLoginPassword] = useState("")
+  const [signupEmail, setSignupEmail] = useState("")
+  const [signupPassword, setSignupPassword] = useState("")
+  
+  const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
   const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
+  const [firstName, setFirstName] = useState("")
+  const [lastName, setLastName] = useState("")
+
+  // État séparé pour éviter les conflits avec currentStep
+  const [sessionChecked, setSessionChecked] = useState(false)
 
   useEffect(() => {
     const checkUserSession = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session) {
-        setIsUserLoggedIn(true)
-        setUserEmail(session.user.email)
-        if (currentStep === 1) {
-          setCurrentStep(2)
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        
+        if (session) {
+          setIsUserLoggedIn(true)
+          setUserEmail(session.user.email)
+          // Ne changer l'étape que si on est encore à l'étape 1 et que la session vient d'être vérifiée
+          if (currentStep === 1 && !sessionChecked) {
+            setCurrentStep(2)
+          }
+        } else {
+          setIsUserLoggedIn(false)
         }
-      } else {
+      } catch (error) {
+        console.error("Erreur lors de la vérification de session:", error)
         setIsUserLoggedIn(false)
+      } finally {
+        setSessionChecked(true)
       }
     }
-    checkUserSession()
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+    if (!sessionChecked) {
+      checkUserSession()
+    }
+
+    // Écoute les changements d'authentification
+    const {
+      data: { subscription: authListener },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("Auth state change:", event, session?.user?.email)
+      
       if (event === "SIGNED_IN" && session) {
         setIsUserLoggedIn(true)
         setUserEmail(session.user.email)
-        setAuthError(null) // Clear any previous auth errors
-        setSignupSuccessMessage(null) // Clear signup message
+        setAuthError(null)
+        setSignupSuccessMessage(null)
+        // Passer à l'étape suivante seulement si on est à l'étape d'auth
         if (currentStep === 1) {
           setCurrentStep(2)
         }
       } else if (event === "SIGNED_OUT") {
         setIsUserLoggedIn(false)
         setUserEmail(undefined)
-        setCurrentStep(1)
+        if (currentStep > 1) {
+          setCurrentStep(1)
+        }
       }
     })
 
     return () => {
-      authListener?.unsubscribe()
+      authListener?.unsubscribe?.()
     }
-  }, [supabase, currentStep])
+  }, [supabase, currentStep, sessionChecked])
 
   const pricingOptions: PricingOption[] = [
     {
@@ -155,49 +185,60 @@ export default function StartConsultationPage() {
     setAuthError(null)
     setSignupSuccessMessage(null)
 
-    if (authView === "signup") {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
-        },
-      })
-      if (error) {
-        setAuthError(error.message)
-      } else if (data.user && data.user.identities?.length === 0) {
-        // This case might indicate the user already exists but needs confirmation,
-        // or Supabase is configured to not auto-confirm and not send email for existing unconfirmed user.
-        // For a clearer message, we can assume if no session, and user object exists, they might need to confirm or login.
-        setAuthError(t.authErrorUserExistsOrUnconfirmed)
-      } else if (data.session) {
-        // User is auto-confirmed and signed in (e.g. local dev with email confirmation disabled)
-        setIsUserLoggedIn(true)
-        setUserEmail(data.session.user.email)
-        setCurrentStep(2)
-      } else if (data.user) {
-        // User created, email sent for confirmation
-        setSignupSuccessMessage(t.authSuccessSignup)
+    // Utiliser les bonnes variables selon l'onglet actif
+    const email = authView === "signup" ? signupEmail : loginEmail
+    const password = authView === "signup" ? signupPassword : loginPassword
+
+    try {
+      if (authView === "signup") {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
+          },
+        })
+        
+        if (error) {
+          setAuthError(error.message)
+        } else if (data.user && data.user.identities?.length === 0) {
+          setAuthError(t.authErrorUserExistsOrUnconfirmed)
+        } else if (data.session) {
+          // Auto-confirmé et connecté
+          console.log("Utilisateur inscrit et connecté")
+        } else if (data.user) {
+          // Email de confirmation envoyé
+          setSignupSuccessMessage(t.authSuccessSignup)
+        } else {
+          setAuthError(t.authErrorGeneric)
+        }
       } else {
-        // Should not happen if no error and no user/session
-        setAuthError(t.authErrorGeneric)
+        // Login
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        
+        if (error) {
+          setAuthError(error.message)
+        } else if (data.session) {
+          console.log("Utilisateur connecté")
+        } else {
+          setAuthError(t.authErrorInvalidLogin)
+        }
       }
-    } else {
-      // authView === "login"
-      const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-      if (error) {
-        setAuthError(error.message)
-      } else if (data.session) {
-        setIsUserLoggedIn(true)
-        setUserEmail(data.session.user.email)
-        setCurrentStep(2)
-      } else {
-        // This case should ideally not be reached if login is successful,
-        // as a session should be returned.
-        setAuthError(t.authErrorInvalidLogin)
-      }
+    } catch (error) {
+      console.error("Erreur d'authentification:", error)
+      setAuthError(t.authErrorGeneric)
+    } finally {
+      setIsLoading(false)
     }
-    setIsLoading(false)
+  }
+
+  const handleTabChange = (value: string) => {
+    setAuthView(value as AuthView)
+    setAuthError(null)
+    setSignupSuccessMessage(null)
+    // Optionnel: réinitialiser les champs
+    // setLoginEmail(""); setLoginPassword("");
+    // setSignupEmail(""); setSignupPassword("");
   }
 
   const secondOpinionFeatures = [
@@ -241,11 +282,35 @@ export default function StartConsultationPage() {
     },
   ]
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
+    if (currentStep === 3) {
+      setIsLoading(true)
+      setAuthError(null)
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser()
+
+      if (user && firstName && lastName) {
+        const fullName = `${firstName} ${lastName}`
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .update({ full_name: fullName, updated_at: new Date().toISOString() })
+          .eq("id", user.id)
+
+        if (profileError) {
+          setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
+          setIsLoading(false)
+          return
+        }
+      }
+      setIsLoading(false)
+    }
+
     if (currentStep < 4) {
       setCurrentStep(currentStep + 1)
     } else if (currentStep === 4) {
-      setCurrentStep(5) // Move to success step
+      setCurrentStep(5)
     }
   }
 
@@ -260,12 +325,10 @@ export default function StartConsultationPage() {
     return `${t[plan.titleKey]} - ${plan.price}${plan.descKey !== "pricingPayPerUseLocalDesc" && plan.descKey !== "pricingPayPerUseTouristDesc" ? t[plan.descKey] : ""}`
   }
 
-  const toggleAuthView = () => {
-    setAuthView(authView === "signup" ? "login" : "signup")
-    setAuthError(null) // Clear errors when switching views
-    setSignupSuccessMessage(null)
-    setEmail("") // Optionally clear fields
-    setPassword("") // Optionally clear fields
+  // Fonction pour obtenir le label dynamique de l'étape 1
+  const getStep1Label = () => {
+    if (isUserLoggedIn) return t.step1Label
+    return authView === "login" ? t.authLoginTitle : t.authSignupTitle
   }
 
   return (
@@ -306,7 +369,7 @@ export default function StartConsultationPage() {
                     <span
                       className={`ml-0 sm:ml-2 mt-1 sm:mt-0 text-xs sm:text-sm font-medium ${currentStep >= step.id ? "text-blue-700" : "text-gray-500"}`}
                     >
-                      {t[step.labelKey]}
+                      {step.id === 1 ? getStep1Label() : t[step.labelKey]}
                     </span>
                   </div>
                   {index < stepsConfig.length - 1 && (
@@ -322,8 +385,8 @@ export default function StartConsultationPage() {
         {currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{authView === "signup" ? t.authSignupTitle : t.authLoginTitle}</CardTitle>
-              <CardDescription>{authView === "signup" ? t.authSignupSubtitle : t.authLoginSubtitle}</CardDescription>
+              <CardTitle className="text-2xl">{t.authWelcomeTitle || "Connexion / Inscription"}</CardTitle>
+              <CardDescription>{t.authWelcomeDesc || "Connectez-vous ou créez un compte pour continuer"}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md mx-auto">
               {authError && (
@@ -342,43 +405,87 @@ export default function StartConsultationPage() {
                 </div>
               )}
 
-              <form onSubmit={handleEmailAuth} className="space-y-4">
-                <div>
-                  <Label htmlFor="email">{t.emailLabel}</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="email@example.com"
-                    required
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="password">{t.passwordLabel}</Label>
-                  <Input
-                    id="password"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    minLength={authView === "signup" ? 6 : undefined} // Supabase default min password length
-                  />
-                </div>
-                <Button type="submit" className="w-full py-3" disabled={isLoading}>
-                  {isLoading ? (
-                    <Loader2 className="animate-spin mr-2" />
-                  ) : authView === "signup" ? (
-                    t.authSignupButton
-                  ) : (
-                    t.authLoginButton
-                  )}
-                </Button>
-              </form>
-              <Button variant="link" onClick={toggleAuthView} className="w-full text-sm">
-                {authView === "signup" ? t.authSwitchToLogin : t.authSwitchToSignup}
-              </Button>
+              <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="login">{t.authLoginTitle}</TabsTrigger>
+                  <TabsTrigger value="signup">{t.authSignupTitle}</TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="login">
+                  <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
+                    <div>
+                      <Label htmlFor="login-email">{t.emailLabel}</Label>
+                      <Input
+                        id="login-email"
+                        type="email"
+                        value={loginEmail}
+                        onChange={(e) => setLoginEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="login-password">{t.passwordLabel}</Label>
+                      <Input
+                        id="login-password"
+                        type="password"
+                        value={loginPassword}
+                        onChange={(e) => setLoginPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                      />
+                    </div>
+                    <Button type="submit" className="w-full py-3" disabled={isLoading}>
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="animate-spin mr-2" size={16} />
+                          {t.authLoginButton}
+                        </>
+                      ) : (
+                        t.authLoginButton
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+                
+                <TabsContent value="signup">
+                  <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
+                    <div>
+                      <Label htmlFor="signup-email">{t.emailLabel}</Label>
+                      <Input
+                        id="signup-email"
+                        type="email"
+                        value={signupEmail}
+                        onChange={(e) => setSignupEmail(e.target.value)}
+                        placeholder="email@example.com"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="signup-password">{t.passwordLabel}</Label>
+                      <Input
+                        id="signup-password"
+                        type="password"
+                        value={signupPassword}
+                        onChange={(e) => setSignupPassword(e.target.value)}
+                        placeholder="••••••••"
+                        required
+                        minLength={6}
+                      />
+                    </div>
+                    <Button type="submit" className="w-full py-3" disabled={isLoading}>
+                      {isLoading ? (
+                        <>
+                          <Loader2 className="animate-spin mr-2" size={16} />
+                          {t.authSignupButton}
+                        </>
+                      ) : (
+                        t.authSignupButton
+                      )}
+                    </Button>
+                  </form>
+                </TabsContent>
+              </Tabs>
             </CardContent>
           </Card>
         )}
@@ -477,20 +584,41 @@ export default function StartConsultationPage() {
               )}
             </CardHeader>
             <CardContent>
+              {authError && currentStep === 3 && (
+                <div
+                  className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
+                  role="alert"
+                >
+                  <AlertTriangle className="inline-block mr-2 h-5 w-5" />
+                  <span className="block sm:inline">{authError}</span>
+                </div>
+              )}
               <form className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="firstName">{t.firstNameLabel}</Label>
-                    <Input id="firstName" placeholder={t.firstNameLabel} />
+                    <Input
+                      id="firstName"
+                      placeholder={t.firstNameLabel}
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      required
+                    />
                   </div>
                   <div>
                     <Label htmlFor="lastName">{t.lastNameLabel}</Label>
-                    <Input id="lastName" placeholder={t.lastNameLabel} />
+                    <Input
+                      id="lastName"
+                      placeholder={t.lastNameLabel}
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      required
+                    />
                   </div>
                 </div>
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="email-patient">{t.emailLabel}</Label> {/* Changed id to avoid conflict */}
+                    <Label htmlFor="email-patient">{t.emailLabel}</Label>
                     <Input
                       id="email-patient"
                       type="email"
@@ -537,7 +665,12 @@ export default function StartConsultationPage() {
                   <Textarea className="mt-2" placeholder={`${t.currentTreatmentLabel} (si oui)...`} />
                 </div>
                 <div className="mt-8 flex justify-center">
-                  <Button onClick={handleNextStep} className="px-8 py-3 text-base">
+                  <Button 
+                    onClick={handleNextStep} 
+                    className="px-8 py-3 text-base" 
+                    disabled={isLoading || !firstName || !lastName}
+                  >
+                    {isLoading && currentStep === 3 ? <Loader2 className="animate-spin mr-2" /> : null}
                     {t.continueButton}
                   </Button>
                 </div>
