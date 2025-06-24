@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useCallback } from "react"
 import {
   HeartPulse,
   Check,
@@ -57,20 +57,20 @@ export default function StartConsultationPage() {
   const { language } = useLanguage()
   const t = translations[language]
 
-  // États d'authentification
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
   const [signupEmail, setSignupEmail] = useState("")
   const [signupPassword, setSignupPassword] = useState("")
 
   const [authView, setAuthView] = useState<AuthView>("login")
-  const [isLoading, setIsLoading] = useState(false)
+  const [isLoading, setIsLoading] = useState(false) // General loading for auth actions
+  const [isCheckingSession, setIsCheckingSession] = useState(true) // New state for initial session check
+
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
   const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
 
-  // États des informations patient
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [patientDateOfBirth, setPatientDateOfBirth] = useState("")
@@ -82,47 +82,96 @@ export default function StartConsultationPage() {
   const [patientEmergencyContactName, setPatientEmergencyContactName] = useState("")
   const [patientEmergencyContactPhone, setPatientEmergencyContactPhone] = useState("")
 
-  // États de la tarification
-  const [pricingLoading, setPricingLoading] = useState(false) // Kept for potential future use in pricing step
+  const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingError, setPricingError] = useState<string | null>(null)
 
-  const createUserProfile = async (userId: string, email: string) => {
-    try {
-      const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
-      if (error) console.error("Erreur lors de la création du profil:", error)
-      else console.log("Profil utilisateur créé avec succès")
-    } catch (error) {
-      console.error("Erreur lors de la création du profil:", error)
-    }
-  }
+  const createUserProfile = useCallback(
+    async (userId: string, email: string) => {
+      try {
+        console.log("createUserProfile called for userId:", userId)
+        const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
+        if (error) console.error("Erreur lors de la création du profil:", error)
+        else console.log("Profil utilisateur créé avec succès pour userId:", userId)
+      } catch (error) {
+        console.error("Exception lors de la création du profil:", error)
+      }
+    },
+    [supabase],
+  )
 
-  const ensureUserProfile = async (userId: string, email: string) => {
-    try {
-      const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
-      if (error && error.code === "PGRST116") await createUserProfile(userId, email)
-      else if (error) console.error("Erreur lors de la vérification du profil:", error)
-    } catch (error) {
-      console.error("Erreur lors de la vérification du profil:", error)
-    }
-  }
+  const ensureUserProfile = useCallback(
+    async (userId: string, email: string) => {
+      try {
+        console.log("ensureUserProfile called for userId:", userId)
+        const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
+        if (error && error.code === "PGRST116") {
+          console.log("Profil non trouvé pour userId:", userId, "Tentative de création.")
+          await createUserProfile(userId, email)
+        } else if (error) {
+          console.error("Erreur lors de la vérification du profil pour userId:", userId, error)
+        } else {
+          console.log("Profil existant trouvé pour userId:", userId, data)
+        }
+      } catch (error) {
+        console.error("Exception lors de la vérification du profil pour userId:", userId, error)
+      }
+    },
+    [supabase, createUserProfile],
+  )
 
   useEffect(() => {
+    console.log("Setting up onAuthStateChange listener")
+    setIsCheckingSession(true) // Start checking session
+
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("onAuthStateChange event:", event, "session:", session ? "Exists" : "Null")
+
       if (session) {
         setIsUserLoggedIn(true)
         setUserEmail(session.user.email)
+        console.log("User session found. User ID:", session.user.id)
+
         await ensureUserProfile(session.user.id, session.user.email || "")
-        setCurrentStep((prevStep) => (prevStep === 1 ? 2 : prevStep))
+        console.log("ensureUserProfile completed for user:", session.user.id)
+
+        // Check for existing patient data
+        const { data: patientData, error: patientError } = await supabase
+          .from("patients")
+          .select("user_id")
+          .eq("user_id", session.user.id)
+          .maybeSingle()
+
+        if (patientError) {
+          console.error("Error checking patient data:", patientError)
+          // Decide how to handle this - for now, proceed as if no data
+          setCurrentStep((prevStep) => (prevStep === 1 ? 2 : prevStep))
+        } else if (patientData) {
+          console.log("Patient data found for user. Redirecting to /dashboard.")
+          router.push("/dashboard")
+          // No need to set currentStep here as we are redirecting
+        } else {
+          console.log("No patient data found for user. Proceeding to step 2 if on step 1.")
+          setCurrentStep((prevStep) => {
+            if (prevStep === 1) return 2
+            return prevStep
+          })
+        }
       } else {
+        console.log("No user session. Event:", event)
         setIsUserLoggedIn(false)
         setUserEmail(undefined)
-        setCurrentStep(1)
+        setCurrentStep(1) // Always go to step 1 if no session or signed out
       }
+      setIsCheckingSession(false) // Finished checking session
     })
-    return () => subscription.unsubscribe()
-  }, [supabase])
+
+    return () => {
+      console.log("Cleaning up onAuthStateChange listener")
+      subscription.unsubscribe()
+    }
+  }, [supabase, ensureUserProfile, router])
 
   const pricingOptions: PricingOption[] = [
     {
@@ -178,6 +227,7 @@ export default function StartConsultationPage() {
     setSignupSuccessMessage(null)
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
+    console.log(`handleEmailAuth: view: ${authView}, email: ${email}`)
 
     try {
       if (authView === "signup") {
@@ -195,19 +245,21 @@ export default function StartConsultationPage() {
         else if (data.user && !data.session)
           setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error)
           setAuthError(
             error.message.includes("Invalid login credentials")
               ? "Email ou mot de passe incorrect."
               : `Erreur de connexion: ${error.message}`,
           )
+        // onAuthStateChange will handle navigation/step change
       }
     } catch (error: any) {
-      console.error("Erreur d'authentification:", error)
+      console.error(`handleEmailAuth: Unhandled error during ${authView}:`, error)
       setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion.")
     } finally {
       setIsLoading(false)
+      console.log("handleEmailAuth: isLoading set to false")
     }
   }
 
@@ -218,7 +270,6 @@ export default function StartConsultationPage() {
   }
 
   const handleNextStep = async () => {
-    // Logic for Step 3: Patient Information
     if (currentStep === 3) {
       if (!firstName || !lastName) {
         setAuthError(t.fillRequiredFieldsError || "Veuillez remplir le prénom et le nom.")
@@ -226,81 +277,62 @@ export default function StartConsultationPage() {
       }
       setIsLoading(true)
       setAuthError(null)
-      let stepAdvancedSuccessfully = false
-
       try {
         const {
           data: { user },
         } = await supabase.auth.getUser()
-
         if (!user) {
           setAuthError("Utilisateur non trouvé. Veuillez vous reconnecter.")
-        } else {
-          // 1. Save to 'patients' table
-          const patientData = {
-            user_id: user.id,
-            first_name: firstName,
-            last_name: lastName,
-            date_of_birth: patientDateOfBirth || null,
-            gender: patientGender || null,
-            phone_number: patientPhoneNumber || null,
-            email: user.email,
-            address: patientAddress || null,
-            city: patientCity || null,
-            country: patientCountry || null,
-            emergency_contact_name: patientEmergencyContactName || null,
-            emergency_contact_phone: patientEmergencyContactPhone || null,
-          }
-          const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-
-          if (patientError) {
-            console.error("Patient save error:", patientError)
-            setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
-          } else {
-            // 2. Update 'profiles' table
-            const fullName = `${firstName} ${lastName}`
-            const { error: profileError } = await supabase
-              .from("profiles")
-              .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
-
-            if (profileError) {
-              console.error("Profile save error:", profileError)
-              setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
-            } else {
-              // All successful
-              setCurrentStep(4)
-              stepAdvancedSuccessfully = true
-            }
-          }
+          return
         }
+        const patientData = {
+          user_id: user.id,
+          first_name: firstName,
+          last_name: lastName,
+          date_of_birth: patientDateOfBirth || null,
+          gender: patientGender || null,
+          phone_number: patientPhoneNumber || null,
+          email: user.email,
+          address: patientAddress || null,
+          city: patientCity || null,
+          country: patientCountry || null,
+          emergency_contact_name: patientEmergencyContactName || null,
+          emergency_contact_phone: patientEmergencyContactPhone || null,
+        }
+        const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
+        if (patientError) {
+          console.error("Patient save error:", patientError)
+          setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
+          return
+        }
+        const fullName = `${firstName} ${lastName}`
+        const { error: profileError } = await supabase
+          .from("profiles")
+          .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
+        if (profileError) {
+          console.error("Profile save error:", profileError)
+          setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
+          return
+        }
+        setCurrentStep(4)
       } catch (error: any) {
         console.error("Erreur inattendue dans handleNextStep (step 3):", error)
         setAuthError(`Une erreur inattendue est survenue: ${error.message}`)
       } finally {
         setIsLoading(false)
       }
-
-      // If step was not advanced due to an error, we stay on step 3.
-      // The user will see the error and isLoading will be false.
-      return // Explicitly return to avoid falling through to other step logic for this click
+      return
     }
 
-    // Logic for advancing from other steps
-    if (currentStep === 1) {
-      // Should be handled by auth useEffect, but as a fallback
-      setCurrentStep(2)
-    } else if (currentStep === 2) {
-      // Advancing from step 2 (pricing)
+    if (currentStep === 1) setCurrentStep(2)
+    else if (currentStep === 2) {
       if (!selectedPricing) {
         setPricingError(t.selectPlanError || "Veuillez sélectionner un plan tarifaire.")
         return
       }
-      setPricingError(null) // Clear previous pricing error
+      setPricingError(null)
       setCurrentStep(3)
     } else if (currentStep === 4) {
-      // Advancing from step 4 (payment)
-      // TODO: Add actual payment processing logic here
-      // For now, just advance to success
       console.log("Simulating payment success and advancing to step 5")
       setCurrentStep(5)
     }
@@ -349,7 +381,7 @@ export default function StartConsultationPage() {
 
   const handleSelectPricing = (id: string) => {
     setSelectedPricing(id)
-    if (pricingError) setPricingError(null) // Clear error when a selection is made
+    if (pricingError) setPricingError(null)
   }
 
   const getSelectedPlanInfo = () => {
@@ -362,6 +394,15 @@ export default function StartConsultationPage() {
   const getStep1Label = () => {
     if (isUserLoggedIn) return t.step1Label || "Authentification"
     return authView === "login" ? "Connexion" : "Inscription"
+  }
+
+  // Show a global loader while initially checking session to prevent flicker
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
+      </div>
+    )
   }
 
   return (
@@ -414,7 +455,6 @@ export default function StartConsultationPage() {
           </div>
         )}
 
-        {/* Step 1: Login / Signup */}
         {currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
@@ -437,7 +477,6 @@ export default function StartConsultationPage() {
                   <span className="block sm:inline">{signupSuccessMessage}</span>
                 </div>
               )}
-
               <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger
@@ -453,7 +492,6 @@ export default function StartConsultationPage() {
                     Inscription
                   </TabsTrigger>
                 </TabsList>
-
                 <TabsContent value="login">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
@@ -490,7 +528,6 @@ export default function StartConsultationPage() {
                     </Button>
                   </form>
                 </TabsContent>
-
                 <TabsContent value="signup">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
@@ -533,7 +570,6 @@ export default function StartConsultationPage() {
           </Card>
         )}
 
-        {/* Step 2: Pricing Selection */}
         {currentStep === 2 && (
           <Card>
             <CardHeader className="text-center">
@@ -559,9 +595,7 @@ export default function StartConsultationPage() {
                 {pricingOptions.map((option) => (
                   <div
                     key={option.id}
-                    className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${
-                      selectedPricing === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"
-                    }`}
+                    className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${selectedPricing === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"}`}
                     onClick={() => handleSelectPricing(option.id)}
                   >
                     <div className="text-center">
@@ -589,7 +623,6 @@ export default function StartConsultationPage() {
                   </div>
                 ))}
               </div>
-
               <div className="border-t pt-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
                   {t.secondOpinionServiceTitle || "Service de second avis médical"}
@@ -626,9 +659,9 @@ export default function StartConsultationPage() {
                 <Button
                   onClick={handleNextStep}
                   className="px-8 py-3 text-base"
-                  disabled={isLoading || !selectedPricing} // isLoading is general, selectedPricing for this step
+                  disabled={isLoading || !selectedPricing}
                 >
-                  {isLoading && currentStep === 2 ? ( // Show loader if loading specifically for this step
+                  {isLoading && currentStep === 2 ? (
                     <>
                       <Loader2 className="animate-spin mr-2" size={16} />
                       Chargement...
@@ -642,7 +675,6 @@ export default function StartConsultationPage() {
           </Card>
         )}
 
-        {/* Step 3: Patient Information */}
         {currentStep === 3 && (
           <Card>
             <CardHeader className="text-center">
@@ -655,7 +687,7 @@ export default function StartConsultationPage() {
               )}
             </CardHeader>
             <CardContent>
-              {authError && ( // General authError can be shown here if relevant from previous steps or step 3 itself
+              {authError && (
                 <div
                   className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
                   role="alert"
@@ -741,7 +773,6 @@ export default function StartConsultationPage() {
                     </SelectContent>
                   </Select>
                 </div>
-
                 <div>
                   <Label htmlFor="patient-address">{t.addressLabel || "Adresse"}</Label>
                   <Textarea
@@ -751,7 +782,6 @@ export default function StartConsultationPage() {
                     onChange={(e) => setPatientAddress(e.target.value)}
                   />
                 </div>
-
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="patient-city">{t.cityLabel || "Ville"}</Label>
@@ -772,7 +802,6 @@ export default function StartConsultationPage() {
                     />
                   </div>
                 </div>
-
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="patient-emergency-contact-name">
@@ -834,7 +863,6 @@ export default function StartConsultationPage() {
           </Card>
         )}
 
-        {/* Step 4: Payment */}
         {currentStep === 4 && (
           <Card>
             <CardHeader className="text-center">
@@ -905,7 +933,6 @@ export default function StartConsultationPage() {
           </Card>
         )}
 
-        {/* Step 5: Success Message */}
         {currentStep === 5 && (
           <Card>
             <CardHeader className="text-center">

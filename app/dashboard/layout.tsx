@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, type ReactNode } from "react"
+import React, { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
 import {
   HeartPulse,
@@ -32,6 +32,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
+import { Skeleton } from "@/components/ui/skeleton" // Added for loading skeleton
 
 interface NavItem {
   id: string
@@ -50,18 +52,108 @@ const navItems: NavItem[] = [
   { id: "history", labelKey: "navHistory", icon: History },
 ]
 
-// Mock user data - replace with actual auth data
-const mockUser = {
-  name: "Marie Dubois",
-  avatarUrl: "/placeholder.svg?width=32&height=32",
-  plan: "dashboardPlanFamily",
-  consultationsRemaining: 3,
+// Mock user data for plan and consultations - replace with actual auth data later
+const mockUserStaticData = {
+  plan: "dashboardPlanFamily" as TranslationKey, // This will remain static for now
+  consultationsRemaining: 3, // This will remain static for now
+}
+
+interface UserProfile {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  avatarUrl: string | null
+  email: string | undefined
 }
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState("dashboard")
   const { language } = useLanguage()
   const t = translations[language]
+  const supabase = getSupabaseBrowserClient()
+
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
+  const [isLoadingUser, setIsLoadingUser] = useState(true)
+
+  useEffect(() => {
+    const fetchUserData = async () => {
+      setIsLoadingUser(true)
+      const {
+        data: { user },
+        error: authError,
+      } = await supabase.auth.getUser()
+
+      if (authError) {
+        console.error("Error fetching auth user:", authError)
+        setIsLoadingUser(false)
+        return
+      }
+
+      if (user) {
+        const { data: profile, error: profileError } = await supabase
+          .from("profiles")
+          .select("first_name, last_name, avatar_url")
+          .eq("id", user.id)
+          .single()
+
+        if (profileError) {
+          console.error("Error fetching profile:", profileError)
+          // Still set basic user info if profile fetch fails but auth user exists
+          setCurrentUser({
+            id: user.id,
+            firstName: user.email?.split("@")[0] || "User",
+            lastName: "",
+            avatarUrl: null,
+            email: user.email,
+          })
+        } else if (profile) {
+          setCurrentUser({
+            id: user.id,
+            firstName: profile.first_name,
+            lastName: profile.last_name,
+            avatarUrl: profile.avatar_url,
+            email: user.email,
+          })
+        } else {
+          // Profile not found, but user exists. Create a basic profile or use email.
+          setCurrentUser({
+            id: user.id,
+            firstName: user.email?.split("@")[0] || "User",
+            lastName: "",
+            avatarUrl: null,
+            email: user.email,
+          })
+        }
+      } else {
+        // No user session
+        setCurrentUser(null)
+      }
+      setIsLoadingUser(false)
+    }
+
+    fetchUserData()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("DashboardLayout Auth Event:", event)
+      if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") {
+        await fetchUserData()
+      } else if (event === "SIGNED_OUT") {
+        setCurrentUser(null)
+        setIsLoadingUser(false)
+        // Optionally redirect to login or home page
+        // window.location.href = '/';
+      }
+    })
+
+    return () => {
+      authListener?.subscription.unsubscribe()
+    }
+  }, [supabase])
+
+  const displayName = currentUser ? `${currentUser.firstName || ""} ${currentUser.lastName || ""}`.trim() : "User"
+  const avatarFallbackName = currentUser
+    ? `${(currentUser.firstName || "U").charAt(0)}${(currentUser.lastName || "").charAt(0)}`
+    : "U"
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -87,35 +179,55 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <span className="absolute top-1 right-1 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse"></span>
                 <span className="sr-only">Notifications</span>
               </Button>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="flex items-center space-x-2 p-1 rounded-full">
-                    <Avatar className="w-8 h-8">
-                      <AvatarImage src={mockUser.avatarUrl || "/placeholder.svg"} alt={mockUser.name} />
-                      <AvatarFallback>{mockUser.name.substring(0, 1)}</AvatarFallback>
-                    </Avatar>
-                    <span className="hidden md:inline text-sm font-medium text-gray-700">{mockUser.name}</span>
-                    <ChevronDown size={16} className="hidden md:inline text-gray-500" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuLabel>{mockUser.name}</DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem>
-                    <UserCircle size={16} className="mr-2" />
-                    Profil
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>
-                    <Settings size={16} className="mr-2" />
-                    Paramètres
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem>
-                    <LogOut size={16} className="mr-2" />
-                    Déconnexion
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              {isLoadingUser ? (
+                <div className="flex items-center space-x-2">
+                  <Skeleton className="h-8 w-8 rounded-full" />
+                  <Skeleton className="h-4 w-20 hidden md:block" />
+                </div>
+              ) : currentUser ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="flex items-center space-x-2 p-1 rounded-full">
+                      <Avatar className="w-8 h-8">
+                        <AvatarImage
+                          src={currentUser.avatarUrl || "/placeholder.svg?width=32&height=32&query=user+avatar"}
+                          alt={displayName}
+                        />
+                        <AvatarFallback>{avatarFallbackName}</AvatarFallback>
+                      </Avatar>
+                      <span className="hidden md:inline text-sm font-medium text-gray-700">{displayName}</span>
+                      <ChevronDown size={16} className="hidden md:inline text-gray-500" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>{displayName}</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem>
+                      <UserCircle size={16} className="mr-2" />
+                      Profil
+                    </DropdownMenuItem>
+                    <DropdownMenuItem>
+                      <Settings size={16} className="mr-2" />
+                      Paramètres
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        await supabase.auth.signOut()
+                        // Redirect or handle post-logout state
+                        window.location.href = "/start-consultation" // Or your login page
+                      }}
+                    >
+                      <LogOut size={16} className="mr-2" />
+                      Déconnexion
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button variant="outline" onClick={() => (window.location.href = "/start-consultation")}>
+                  Connexion
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -131,9 +243,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     <Crown size={20} />
                   </div>
                   <div className="ml-3">
-                    <p className="text-sm font-medium text-gray-900">{t[mockUser.plan as TranslationKey]}</p>
+                    {/* These still use mock data */}
+                    <p className="text-sm font-medium text-gray-900">{t[mockUserStaticData.plan]}</p>
                     <p className="text-xs text-gray-500">
-                      {mockUser.consultationsRemaining} {t.dashboardConsultationsRemaining}
+                      {mockUserStaticData.consultationsRemaining} {t.dashboardConsultationsRemaining}
                     </p>
                   </div>
                 </div>
@@ -146,15 +259,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                   key={item.id}
                   href={`/dashboard?tab=${item.id}`}
                   onClick={(e) => {
-                    e.preventDefault() // Prevent full page reload
+                    e.preventDefault()
                     setActiveTab(item.id)
-                    // Update URL without full reload for better UX, if desired
-                    // window.history.pushState(null, "", `/dashboard?tab=${item.id}`);
+                    window.history.pushState(null, "", `/dashboard?tab=${item.id}`)
                   }}
                   className={cn(
                     "flex items-center px-3 py-3 text-sm font-medium rounded-md transition-colors duration-150",
                     activeTab === item.id
-                      ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600" // Active style from HTML was border-r-2
+                      ? "text-blue-600 bg-blue-50 border-r-2 border-blue-600"
                       : "text-gray-600 hover:text-gray-900 hover:bg-gray-50",
                   )}
                 >
@@ -172,8 +284,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="flex-1 md:ml-64 p-4 sm:p-6 lg:p-8 mt-0">
-          {" "}
-          {/* Removed top margin from header height */}
           {React.cloneElement(children as React.ReactElement, { activeTab })}
         </main>
       </div>
