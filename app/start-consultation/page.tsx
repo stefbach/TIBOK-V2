@@ -27,7 +27,6 @@ import { translations, type TranslationKey } from "@/lib/translations"
 import Link from "next/link"
 import { useSearchParams, useRouter } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 const stepsConfig = [
   { id: 1, labelKey: "step1Label" as TranslationKey },
@@ -57,99 +56,85 @@ export default function StartConsultationPage() {
   const { language } = useLanguage()
   const t = translations[language]
 
-  // États d'authentification
+  // États d'authentification séparés pour éviter les conflits
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
   const [signupEmail, setSignupEmail] = useState("")
   const [signupPassword, setSignupPassword] = useState("")
-
+  
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
   const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
-
-  // États des informations patient
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
-  const [patientDateOfBirth, setPatientDateOfBirth] = useState("")
-  const [patientGender, setPatientGender] = useState("")
-  const [patientPhoneNumber, setPatientPhoneNumber] = useState("")
-  const [patientAddress, setPatientAddress] = useState("")
-  const [patientCity, setPatientCity] = useState("")
-  const [patientCountry, setPatientCountry] = useState("")
-  const [patientEmergencyContactName, setPatientEmergencyContactName] = useState("")
-  const [patientEmergencyContactPhone, setPatientEmergencyContactPhone] = useState("")
 
-  // États de la tarification
-  const [pricingLoading, setPricingLoading] = useState(false)
-  const [pricingError, setPricingError] = useState<string | null>(null)
+  // État séparé pour éviter les conflits avec currentStep
+  const [sessionChecked, setSessionChecked] = useState(false)
 
-  // Fonction pour créer le profil utilisateur manuellement
-  const createUserProfile = async (userId: string, email: string) => {
-    try {
-      const { error } = await supabase.from("profiles").insert([
-        {
-          id: userId,
-          full_name: "", // Sera rempli à l'étape 3
-          created_at: new Date().toISOString(),
-        },
-      ])
-
-      if (error) {
-        console.error("Erreur lors de la création du profil:", error)
-      } else {
-        console.log("Profil utilisateur créé avec succès")
-      }
-    } catch (error) {
-      console.error("Erreur lors de la création du profil:", error)
-    }
-  }
-
-  // Fonction pour vérifier/créer le profil si nécessaire
-  const ensureUserProfile = async (userId: string, email: string) => {
-    try {
-      const { data: existingProfile, error: checkError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .single()
-
-      if (checkError && checkError.code === "PGRST116") {
-        await createUserProfile(userId, email)
-      } else if (checkError) {
-        console.error("Erreur lors de la vérification du profil:", checkError)
-      }
-    } catch (error) {
-      console.error("Erreur lors de la vérification du profil:", error)
-    }
-  }
-
-  // REFACTORED useEffect to prevent infinite loops
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const userIsLoggedIn = !!session
-      setIsUserLoggedIn(userIsLoggedIn)
-      setUserEmail(session?.user.email)
+    const checkUserSession = async () => {
+      try {
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+        
+        if (session) {
+          setIsUserLoggedIn(true)
+          setUserEmail(session.user.email)
+          // Vérifier/créer le profil si nécessaire
+          await ensureUserProfile(session.user.id)
+          // Ne changer l'étape que si on est encore à l'étape 1 et que la session vient d'être vérifiée
+          if (currentStep === 1 && !sessionChecked) {
+            setCurrentStep(2)
+          }
+        } else {
+          setIsUserLoggedIn(false)
+        }
+      } catch (error) {
+        console.error("Erreur lors de la vérification de session:", error)
+        setIsUserLoggedIn(false)
+      } finally {
+        setSessionChecked(true)
+      }
+    }
 
-      if (userIsLoggedIn) {
-        // Called on SIGNED_IN and on initial page load if session exists.
-        await ensureUserProfile(session.user.id, session.user.email || "")
-        // Use functional update to avoid depending on currentStep
-        setCurrentStep((prevStep) => (prevStep === 1 ? 2 : prevStep))
-      } else {
-        // Called on SIGNED_OUT.
-        setCurrentStep(1)
+    if (!sessionChecked) {
+      checkUserSession()
+    }
+
+    // Écoute les changements d'authentification
+    const {
+      data: { subscription: authListener },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log("Auth state change:", event, session?.user?.email)
+      
+      if (event === "SIGNED_IN" && session) {
+        setIsUserLoggedIn(true)
+        setUserEmail(session.user.email)
+        setAuthError(null)
+        setSignupSuccessMessage(null)
+        // Vérifier/créer le profil si nécessaire
+        await ensureUserProfile(session.user.id)
+        // Passer à l'étape suivante seulement si on est à l'étape d'auth
+        if (currentStep === 1) {
+          setCurrentStep(2)
+        }
+      } else if (event === "SIGNED_OUT") {
+        setIsUserLoggedIn(false)
+        setUserEmail(undefined)
+        if (currentStep > 1) {
+          setCurrentStep(1)
+        }
       }
     })
 
     return () => {
-      subscription?.unsubscribe()
+      authListener?.unsubscribe?.()
     }
-  }, [supabase])
+  }, [supabase, currentStep, sessionChecked])
 
   const pricingOptions: PricingOption[] = [
     {
@@ -204,6 +189,7 @@ export default function StartConsultationPage() {
     setAuthError(null)
     setSignupSuccessMessage(null)
 
+    // Utiliser les bonnes variables selon l'onglet actif
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
 
@@ -214,37 +200,114 @@ export default function StartConsultationPage() {
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
+            data: {
+              full_name: '', // Préparer pour les données du profil
+            }
           },
         })
-
+        
         if (error) {
-          if (error.message.includes("User already registered")) {
+          console.error("Supabase signup error:", error)
+          
+          // Gestion spécifique des erreurs courantes
+          if (error.message.includes("Database error saving new user")) {
+            setAuthError("Erreur de configuration de la base de données. Veuillez contacter le support.")
+          } else if (error.message.includes("User already registered")) {
             setAuthError("Un compte avec cet email existe déjà. Essayez de vous connecter.")
+          } else if (error.message.includes("Invalid email")) {
+            setAuthError("Adresse email invalide.")
+          } else if (error.message.includes("Password should be at least")) {
+            setAuthError("Le mot de passe doit contenir au moins 6 caractères.")
           } else {
             setAuthError(`Erreur d'inscription: ${error.message}`)
           }
-        } else if (data.user && !data.session) {
-          // Email de confirmation envoyé
+        } else if (data.user && data.user.identities?.length === 0) {
+          setAuthError("Un utilisateur avec cet email existe déjà. Essayez de vous connecter.")
+        } else if (data.session) {
+          // Auto-confirmé et connecté
+          console.log("Utilisateur inscrit et connecté automatiquement")
+          // Créer le profil manuellement après inscription réussie
+          await createUserProfile(data.user.id, data.user.email || '')
+        } else if (data.user) {
+          // Email de confirmation envoyé - créer le profil quand même
+          await createUserProfile(data.user.id, data.user.email || '')
           setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
+        } else {
+          setAuthError("Une erreur inattendue est survenue lors de l'inscription.")
         }
-        // Si data.session existe, onAuthStateChange s'occupera de la redirection
       } else {
         // Login
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        
         if (error) {
+          console.error("Supabase signin error:", error)
+          
+          // Gestion spécifique des erreurs de connexion
           if (error.message.includes("Invalid login credentials")) {
             setAuthError("Email ou mot de passe incorrect.")
+          } else if (error.message.includes("Email not confirmed")) {
+            setAuthError("Veuillez confirmer votre email avant de vous connecter.")
+          } else if (error.message.includes("Too many requests")) {
+            setAuthError("Trop de tentatives. Veuillez patienter avant de réessayer.")
           } else {
             setAuthError(`Erreur de connexion: ${error.message}`)
           }
+        } else if (data.session) {
+          console.log("Utilisateur connecté avec succès")
+        } else {
+          setAuthError("Impossible de se connecter. Veuillez réessayer.")
         }
-        // Si la connexion réussit, onAuthStateChange s'occupera de la redirection
       }
     } catch (error) {
       console.error("Erreur d'authentification:", error)
       setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion.")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Fonction pour créer le profil utilisateur manuellement
+  const createUserProfile = async (userId: string, email: string) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .insert([
+          {
+            id: userId,
+            full_name: '', // Sera rempli à l'étape 3
+            created_at: new Date().toISOString(),
+          }
+        ])
+      
+      if (error) {
+        console.error("Erreur lors de la création du profil:", error)
+        // Ne pas bloquer l'utilisateur pour cette erreur - le profil sera créé plus tard si nécessaire
+      } else {
+        console.log("Profil utilisateur créé avec succès")
+      }
+    } catch (error) {
+      console.error("Erreur lors de la création du profil:", error)
+    }
+  }
+
+  // Fonction pour vérifier/créer le profil si nécessaire
+  const ensureUserProfile = async (userId: string) => {
+    try {
+      // Vérifier si le profil existe déjà
+      const { data: existingProfile, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .single()
+
+      if (checkError && checkError.code === 'PGRST116') {
+        // Profil n'existe pas, le créer
+        await createUserProfile(userId, userEmail || '')
+      } else if (checkError) {
+        console.error("Erreur lors de la vérification du profil:", checkError)
+      }
+    } catch (error) {
+      console.error("Erreur lors de la vérification du profil:", error)
     }
   }
 
@@ -304,41 +367,28 @@ export default function StartConsultationPage() {
         data: { user },
       } = await supabase.auth.getUser()
 
-      if (user) {
-        // 1. Save to 'patients' table
-        const patientData = {
-          user_id: user.id,
-          first_name: firstName,
-          last_name: lastName,
-          date_of_birth: patientDateOfBirth || null,
-          gender: patientGender || null,
-          phone_number: patientPhoneNumber || null,
-          email: user.email,
-          address: patientAddress || null,
-          city: patientCity || null,
-          country: patientCountry || null,
-          emergency_contact_name: patientEmergencyContactName || null,
-          emergency_contact_phone: patientEmergencyContactPhone || null,
-        }
-
-        const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-
-        if (patientError) {
-          setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
-          setIsLoading(false)
-          return
-        }
-
-        // 2. Update 'profiles' table
+      if (user && firstName && lastName) {
         const fullName = `${firstName} ${lastName}`
+        // Utiliser upsert pour créer ou mettre à jour le profil
         const { error: profileError } = await supabase
           .from("profiles")
-          .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
+          .upsert(
+            { 
+              id: user.id, 
+              full_name: fullName, 
+              created_at: new Date().toISOString() 
+            },
+            { 
+              onConflict: 'id' 
+            }
+          )
 
         if (profileError) {
           setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
           setIsLoading(false)
           return
+        } else {
+          console.log("Profil mis à jour avec succès:", fullName)
         }
       }
       setIsLoading(false)
@@ -362,6 +412,7 @@ export default function StartConsultationPage() {
     return `${t[plan.titleKey]} - ${plan.price}${plan.descKey !== "pricingPayPerUseLocalDesc" && plan.descKey !== "pricingPayPerUseTouristDesc" ? t[plan.descKey] : ""}`
   }
 
+  // Fonction pour obtenir le label dynamique de l'étape 1
   const getStep1Label = () => {
     if (isUserLoggedIn) return t.step1Label || "Authentification"
     return authView === "login" ? "Connexion" : "Inscription"
@@ -443,20 +494,20 @@ export default function StartConsultationPage() {
 
               <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger
-                    value="login"
+                  <TabsTrigger 
+                    value="login" 
                     className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
                   >
                     Connexion
                   </TabsTrigger>
-                  <TabsTrigger
-                    value="signup"
+                  <TabsTrigger 
+                    value="signup" 
                     className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
                   >
                     Inscription
                   </TabsTrigger>
                 </TabsList>
-
+                
                 <TabsContent value="login">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
@@ -493,7 +544,7 @@ export default function StartConsultationPage() {
                     </Button>
                   </form>
                 </TabsContent>
-
+                
                 <TabsContent value="signup">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
@@ -568,9 +619,7 @@ export default function StartConsultationPage() {
                         {t[option.titleKey] || option.titleKey}
                       </h3>
                       <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">{option.price}</div>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">
-                        {t[option.descKey] || option.descKey}
-                      </p>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">{t[option.descKey] || option.descKey}</p>
                       <ul className="text-xs text-gray-600 space-y-1 text-left">
                         {option.featuresKeys.map((featKey) => (
                           <li key={featKey} className="flex items-start">
@@ -591,17 +640,11 @@ export default function StartConsultationPage() {
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
                   <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
                     <div className="text-center sm:text-left mb-2 sm:mb-0">
-                      <h4 className="font-semibold text-gray-900">
-                        {t.secondOpinionSubtitle || "Second avis médical"}
-                      </h4>
-                      <p className="text-sm text-gray-600">
-                        {t.secondOpinionDesc || "Obtenez un second avis d'expert"}
-                      </p>
+                      <h4 className="font-semibold text-gray-900">{t.secondOpinionSubtitle || "Second avis médical"}</h4>
+                      <p className="text-sm text-gray-600">{t.secondOpinionDesc || "Obtenez un second avis d'expert"}</p>
                     </div>
                     <div className="text-center sm:text-right">
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600">
-                        {t.secondOpinionPriceDetails || "Sur devis"}
-                      </div>
+                      <div className="text-xl sm:text-2xl font-bold text-blue-600">{t.secondOpinionPriceDetails || "Sur devis"}</div>
                       <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
                     </div>
                   </div>
@@ -617,9 +660,9 @@ export default function StartConsultationPage() {
                 </div>
               </div>
               <div className="mt-8 flex justify-center">
-                <Button
-                  onClick={handleNextStep}
-                  className="px-8 py-3 text-base"
+                <Button 
+                  onClick={handleNextStep} 
+                  className="px-8 py-3 text-base" 
                   disabled={!selectedPricing || pricingLoading || !!pricingError}
                 >
                   {pricingLoading ? (
@@ -693,25 +736,14 @@ export default function StartConsultationPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="patient-phone-number">{t.phoneLabel || "Téléphone"}</Label>
-                    <Input
-                      id="patient-phone-number"
-                      type="tel"
-                      placeholder="+230 5xxx xxxx"
-                      value={patientPhoneNumber}
-                      onChange={(e) => setPatientPhoneNumber(e.target.value)}
-                    />
+                    <Label htmlFor="phone">{t.phoneLabel || "Téléphone"}</Label>
+                    <Input id="phone" type="tel" placeholder="+230 5xxx xxxx" />
                   </div>
                 </div>
                 <div className="grid md:grid-cols-3 gap-6">
                   <div>
-                    <Label htmlFor="patient-date-of-birth">{t.birthDateLabel || "Date de naissance"}</Label>
-                    <Input
-                      id="patient-date-of-birth"
-                      type="date"
-                      value={patientDateOfBirth}
-                      onChange={(e) => setPatientDateOfBirth(e.target.value)}
-                    />
+                    <Label htmlFor="birthDate">{t.birthDateLabel || "Date de naissance"}</Label>
+                    <Input id="birthDate" type="date" />
                   </div>
                   <div>
                     <Label htmlFor="weight">{t.weightLabel || "Poids (kg)"}</Label>
@@ -720,76 +752,6 @@ export default function StartConsultationPage() {
                   <div>
                     <Label htmlFor="height">{t.heightLabel || "Taille (cm)"}</Label>
                     <Input id="height" type="number" placeholder="170" />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="patient-gender">{t.genderLabel || "Sexe"}</Label>
-                  <Select value={patientGender} onValueChange={setPatientGender}>
-                    <SelectTrigger id="patient-gender">
-                      <SelectValue placeholder={t.genderPlaceholder || "Sélectionner le sexe"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="male">{t.genderMale || "Masculin"}</SelectItem>
-                      <SelectItem value="female">{t.genderFemale || "Féminin"}</SelectItem>
-                      <SelectItem value="other">{t.genderOther || "Autre"}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div>
-                  <Label htmlFor="patient-address">{t.addressLabel || "Adresse"}</Label>
-                  <Textarea
-                    id="patient-address"
-                    placeholder={t.addressPlaceholder || "123 Rue Principale"}
-                    value={patientAddress}
-                    onChange={(e) => setPatientAddress(e.target.value)}
-                  />
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="patient-city">{t.cityLabel || "Ville"}</Label>
-                    <Input
-                      id="patient-city"
-                      placeholder={t.cityPlaceholder || "Port Louis"}
-                      value={patientCity}
-                      onChange={(e) => setPatientCity(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="patient-country">{t.countryLabel || "Pays"}</Label>
-                    <Input
-                      id="patient-country"
-                      placeholder={t.countryPlaceholder || "Maurice"}
-                      value={patientCountry}
-                      onChange={(e) => setPatientCountry(e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div>
-                    <Label htmlFor="patient-emergency-contact-name">
-                      {t.emergencyContactNameLabel || "Nom du contact d'urgence"}
-                    </Label>
-                    <Input
-                      id="patient-emergency-contact-name"
-                      placeholder={t.emergencyContactNamePlaceholder || "Jean Dupont"}
-                      value={patientEmergencyContactName}
-                      onChange={(e) => setPatientEmergencyContactName(e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="patient-emergency-contact-phone">
-                      {t.emergencyContactPhoneLabel || "Téléphone du contact d'urgence"}
-                    </Label>
-                    <Input
-                      id="patient-emergency-contact-phone"
-                      type="tel"
-                      placeholder="+230 5xxx xxxx"
-                      value={patientEmergencyContactPhone}
-                      onChange={(e) => setPatientEmergencyContactPhone(e.target.value)}
-                    />
                   </div>
                 </div>
                 <div>
@@ -808,15 +770,12 @@ export default function StartConsultationPage() {
                       <Label htmlFor="treatment-no">{t.treatmentNo || "Non"}</Label>
                     </div>
                   </RadioGroup>
-                  <Textarea
-                    className="mt-2"
-                    placeholder={`${t.currentTreatmentLabel || "Traitement en cours"} (si oui)...`}
-                  />
+                  <Textarea className="mt-2" placeholder={`${t.currentTreatmentLabel || "Traitement en cours"} (si oui)...`} />
                 </div>
                 <div className="mt-8 flex justify-center">
-                  <Button
-                    onClick={handleNextStep}
-                    className="px-8 py-3 text-base"
+                  <Button 
+                    onClick={handleNextStep} 
+                    className="px-8 py-3 text-base" 
                     disabled={isLoading || !firstName || !lastName}
                   >
                     {isLoading && currentStep === 3 ? <Loader2 className="animate-spin mr-2" /> : null}
@@ -842,9 +801,7 @@ export default function StartConsultationPage() {
             </CardHeader>
             <CardContent className="max-w-md mx-auto">
               <div className="mb-6">
-                <h3 className="font-medium text-gray-900 mb-4">
-                  {t.paymentMethodsAcceptedTitle || "Modes de paiement acceptés"}
-                </h3>
+                <h3 className="font-medium text-gray-900 mb-4">{t.paymentMethodsAcceptedTitle || "Modes de paiement acceptés"}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center justify-center p-3 border border-gray-200 rounded-lg text-sm">
                     <HeartPulse className="text-blue-600 mr-2" size={20} /> Visa
@@ -906,9 +863,7 @@ export default function StartConsultationPage() {
                 <Check className="text-green-600" size={32} />
               </div>
               <CardTitle className="text-2xl">{t.registrationSuccessTitle || "Inscription réussie !"}</CardTitle>
-              <CardDescription>
-                {t.registrationSuccessMessage || "Votre compte a été créé avec succès."}
-              </CardDescription>
+              <CardDescription>{t.registrationSuccessMessage || "Votre compte a été créé avec succès."}</CardDescription>
               {userEmail && (
                 <p className="text-sm text-gray-600">
                   {t.loggedInAs || "Connecté en tant que"} {userEmail}
@@ -927,9 +882,7 @@ export default function StartConsultationPage() {
               </div>
               <div className="flex justify-center">
                 <Link href="/dashboard" passHref>
-                  <Button className="px-8 py-3 text-base font-medium">
-                    {t.goToDashboardButton || "Aller au tableau de bord"}
-                  </Button>
+                  <Button className="px-8 py-3 text-base font-medium">{t.goToDashboardButton || "Aller au tableau de bord"}</Button>
                 </Link>
               </div>
             </CardContent>
