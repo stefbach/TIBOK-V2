@@ -84,6 +84,8 @@ export default function StartConsultationPage() {
         if (session) {
           setIsUserLoggedIn(true)
           setUserEmail(session.user.email)
+          // Vérifier/créer le profil si nécessaire
+          await ensureUserProfile(session.user.id)
           // Ne changer l'étape que si on est encore à l'étape 1 et que la session vient d'être vérifiée
           if (currentStep === 1 && !sessionChecked) {
             setCurrentStep(2)
@@ -114,6 +116,8 @@ export default function StartConsultationPage() {
         setUserEmail(session.user.email)
         setAuthError(null)
         setSignupSuccessMessage(null)
+        // Vérifier/créer le profil si nécessaire
+        await ensureUserProfile(session.user.id)
         // Passer à l'étape suivante seulement si on est à l'étape d'auth
         if (currentStep === 1) {
           setCurrentStep(2)
@@ -222,10 +226,11 @@ export default function StartConsultationPage() {
         } else if (data.session) {
           // Auto-confirmé et connecté
           console.log("Utilisateur inscrit et connecté automatiquement")
-          // Créer le profil manuellement si le trigger a échoué
+          // Créer le profil manuellement après inscription réussie
           await createUserProfile(data.user.id, data.user.email || '')
         } else if (data.user) {
-          // Email de confirmation envoyé
+          // Email de confirmation envoyé - créer le profil quand même
+          await createUserProfile(data.user.id, data.user.email || '')
           setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
         } else {
           setAuthError("Une erreur inattendue est survenue lors de l'inscription.")
@@ -269,18 +274,40 @@ export default function StartConsultationPage() {
         .insert([
           {
             id: userId,
-            full_name: '',
+            full_name: '', // Sera rempli à l'étape 3
             created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
           }
         ])
       
       if (error) {
         console.error("Erreur lors de la création du profil:", error)
-        // Ne pas bloquer l'utilisateur pour cette erreur
+        // Ne pas bloquer l'utilisateur pour cette erreur - le profil sera créé plus tard si nécessaire
+      } else {
+        console.log("Profil utilisateur créé avec succès")
       }
     } catch (error) {
       console.error("Erreur lors de la création du profil:", error)
+    }
+  }
+
+  // Fonction pour vérifier/créer le profil si nécessaire
+  const ensureUserProfile = async (userId: string) => {
+    try {
+      // Vérifier si le profil existe déjà
+      const { data: existingProfile, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', userId)
+        .single()
+
+      if (checkError && checkError.code === 'PGRST116') {
+        // Profil n'existe pas, le créer
+        await createUserProfile(userId, userEmail || '')
+      } else if (checkError) {
+        console.error("Erreur lors de la vérification du profil:", checkError)
+      }
+    } catch (error) {
+      console.error("Erreur lors de la vérification du profil:", error)
     }
   }
 
@@ -342,15 +369,26 @@ export default function StartConsultationPage() {
 
       if (user && firstName && lastName) {
         const fullName = `${firstName} ${lastName}`
+        // Utiliser upsert pour créer ou mettre à jour le profil
         const { error: profileError } = await supabase
           .from("profiles")
-          .update({ full_name: fullName, updated_at: new Date().toISOString() })
-          .eq("id", user.id)
+          .upsert(
+            { 
+              id: user.id, 
+              full_name: fullName, 
+              created_at: new Date().toISOString() 
+            },
+            { 
+              onConflict: 'id' 
+            }
+          )
 
         if (profileError) {
           setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
           setIsLoading(false)
           return
+        } else {
+          console.log("Profil mis à jour avec succès:", fullName)
         }
       }
       setIsLoading(false)
