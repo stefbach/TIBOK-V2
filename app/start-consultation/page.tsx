@@ -202,15 +202,15 @@ export default function StartConsultationPage() {
         if (error) {
           setAuthError(error.message)
         } else if (data.user && data.user.identities?.length === 0) {
-          setAuthError(t.authErrorUserExistsOrUnconfirmed)
+          setAuthError(t.authErrorUserExistsOrUnconfirmed || "Un utilisateur avec cet email existe déjà ou nécessite une confirmation.")
         } else if (data.session) {
           // Auto-confirmé et connecté
           console.log("Utilisateur inscrit et connecté")
         } else if (data.user) {
           // Email de confirmation envoyé
-          setSignupSuccessMessage(t.authSuccessSignup)
+          setSignupSuccessMessage(t.authSuccessSignup || "Vérifiez votre email pour confirmer votre inscription.")
         } else {
-          setAuthError(t.authErrorGeneric)
+          setAuthError(t.authErrorGeneric || "Une erreur est survenue.")
         }
       } else {
         // Login
@@ -221,12 +221,12 @@ export default function StartConsultationPage() {
         } else if (data.session) {
           console.log("Utilisateur connecté")
         } else {
-          setAuthError(t.authErrorInvalidLogin)
+          setAuthError(t.authErrorInvalidLogin || "Email ou mot de passe incorrect.")
         }
       }
     } catch (error) {
       console.error("Erreur d'authentification:", error)
-      setAuthError(t.authErrorGeneric)
+      setAuthError(t.authErrorGeneric || "Une erreur est survenue.")
     } finally {
       setIsLoading(false)
     }
@@ -236,9 +236,6 @@ export default function StartConsultationPage() {
     setAuthView(value as AuthView)
     setAuthError(null)
     setSignupSuccessMessage(null)
-    // Optionnel: réinitialiser les champs
-    // setLoginEmail(""); setLoginPassword("");
-    // setSignupEmail(""); setSignupPassword("");
   }
 
   const secondOpinionFeatures = [
@@ -327,8 +324,8 @@ export default function StartConsultationPage() {
 
   // Fonction pour obtenir le label dynamique de l'étape 1
   const getStep1Label = () => {
-    if (isUserLoggedIn) return t.step1Label
-    return authView === "login" ? t.authLoginTitle : t.authSignupTitle
+    if (isUserLoggedIn) return t.step1Label || "Authentification"
+    return authView === "login" ? "Connexion" : "Inscription"
   }
 
   return (
@@ -344,7 +341,7 @@ export default function StartConsultationPage() {
                 <h1 className="text-xl font-bold text-gray-900">
                   TIBOK<sup className="text-xs">®</sup>
                 </h1>
-                <p className="text-sm text-gray-600">{t.startConsultationBaseline}</p>
+                <p className="text-sm text-gray-600">{t.startConsultationBaseline || "Votre santé, notre priorité"}</p>
               </div>
             </Link>
             <LanguageSwitcher />
@@ -369,7 +366,7 @@ export default function StartConsultationPage() {
                     <span
                       className={`ml-0 sm:ml-2 mt-1 sm:mt-0 text-xs sm:text-sm font-medium ${currentStep >= step.id ? "text-blue-700" : "text-gray-500"}`}
                     >
-                      {step.id === 1 ? getStep1Label() : t[step.labelKey]}
+                      {step.id === 1 ? getStep1Label() : t[step.labelKey] || `Étape ${step.id}`}
                     </span>
                   </div>
                   {index < stepsConfig.length - 1 && (
@@ -385,8 +382,8 @@ export default function StartConsultationPage() {
         {currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.authWelcomeTitle || "Connexion / Inscription"}</CardTitle>
-              <CardDescription>{t.authWelcomeDesc || "Connectez-vous ou créez un compte pour continuer"}</CardDescription>
+              <CardTitle className="text-2xl">Authentification</CardTitle>
+              <CardDescription>Connectez-vous ou créez un compte pour continuer</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md mx-auto">
               {authError && (
@@ -407,14 +404,24 @@ export default function StartConsultationPage() {
 
               <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger value="login" className="text-black data-[state=active]:text-black">{t.authLoginTitle}</TabsTrigger>
-                  <TabsTrigger value="signup" className="text-black data-[state=active]:text-black">{t.authSignupTitle}</TabsTrigger>
+                  <TabsTrigger 
+                    value="login" 
+                    className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
+                  >
+                    Connexion
+                  </TabsTrigger>
+                  <TabsTrigger 
+                    value="signup" 
+                    className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
+                  >
+                    Inscription
+                  </TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="login">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
-                      <Label htmlFor="login-email">{t.emailLabel}</Label>
+                      <Label htmlFor="login-email">{t.emailLabel || "Email"}</Label>
                       <Input
                         id="login-email"
                         type="email"
@@ -425,7 +432,7 @@ export default function StartConsultationPage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="login-password">{t.passwordLabel}</Label>
+                      <Label htmlFor="login-password">{t.passwordLabel || "Mot de passe"}</Label>
                       <Input
                         id="login-password"
                         type="password"
@@ -451,7 +458,7 @@ export default function StartConsultationPage() {
                 <TabsContent value="signup">
                   <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
                     <div>
-                      <Label htmlFor="signup-email">{t.emailLabel}</Label>
+                      <Label htmlFor="signup-email">{t.emailLabel || "Email"}</Label>
                       <Input
                         id="signup-email"
                         type="email"
@@ -462,7 +469,7 @@ export default function StartConsultationPage() {
                       />
                     </div>
                     <div>
-                      <Label htmlFor="signup-password">{t.passwordLabel}</Label>
+                      <Label htmlFor="signup-password">{t.passwordLabel || "Mot de passe"}</Label>
                       <Input
                         id="signup-password"
                         type="password"
@@ -494,11 +501,11 @@ export default function StartConsultationPage() {
         {currentStep === 2 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.pricingSelectionTitle}</CardTitle>
-              <CardDescription>{t.pricingSelectionSubtitle}</CardDescription>
+              <CardTitle className="text-2xl">{t.pricingSelectionTitle || "Sélection du tarif"}</CardTitle>
+              <CardDescription>{t.pricingSelectionSubtitle || "Choisissez le plan qui vous convient"}</CardDescription>
               {userEmail && (
                 <p className="text-sm text-gray-600">
-                  {t.loggedInAs} {userEmail}
+                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
                 </p>
               )}
             </CardHeader>
@@ -515,19 +522,19 @@ export default function StartConsultationPage() {
                     <div className="text-center">
                       {option.isPopular && (
                         <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full mb-2 inline-block">
-                          {t.pricingPopularBadge}
+                          {t.pricingPopularBadge || "Populaire"}
                         </span>
                       )}
                       <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">
-                        {t[option.titleKey]}
+                        {t[option.titleKey] || option.titleKey}
                       </h3>
                       <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">{option.price}</div>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">{t[option.descKey]}</p>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">{t[option.descKey] || option.descKey}</p>
                       <ul className="text-xs text-gray-600 space-y-1 text-left">
                         {option.featuresKeys.map((featKey) => (
                           <li key={featKey} className="flex items-start">
                             <Check size={14} className="mr-1 mt-0.5 text-green-500 flex-shrink-0" />
-                            <span>{t[featKey]}</span>
+                            <span>{t[featKey] || featKey}</span>
                           </li>
                         ))}
                       </ul>
@@ -538,25 +545,25 @@ export default function StartConsultationPage() {
 
               <div className="border-t pt-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
-                  {t.secondOpinionServiceTitle}
+                  {t.secondOpinionServiceTitle || "Service de second avis médical"}
                 </h3>
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
                   <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
                     <div className="text-center sm:text-left mb-2 sm:mb-0">
-                      <h4 className="font-semibold text-gray-900">{t.secondOpinionSubtitle}</h4>
-                      <p className="text-sm text-gray-600">{t.secondOpinionDesc}</p>
+                      <h4 className="font-semibold text-gray-900">{t.secondOpinionSubtitle || "Second avis médical"}</h4>
+                      <p className="text-sm text-gray-600">{t.secondOpinionDesc || "Obtenez un second avis d'expert"}</p>
                     </div>
                     <div className="text-center sm:text-right">
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600">{t.secondOpinionPriceDetails}</div>
-                      <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition}</p>
+                      <div className="text-xl sm:text-2xl font-bold text-blue-600">{t.secondOpinionPriceDetails || "Sur devis"}</div>
+                      <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
                     </div>
                   </div>
                   <div className="grid md:grid-cols-3 gap-4 mt-4">
                     {secondOpinionFeatures.map((feature) => (
                       <div key={feature.titleKey} className="text-center p-4 bg-white rounded-lg shadow-sm">
                         {feature.icon}
-                        <h5 className="font-medium text-gray-900 text-sm">{t[feature.titleKey]}</h5>
-                        <p className="text-xs text-gray-600">{t[feature.descKey]}</p>
+                        <h5 className="font-medium text-gray-900 text-sm">{t[feature.titleKey] || feature.titleKey}</h5>
+                        <p className="text-xs text-gray-600">{t[feature.descKey] || feature.descKey}</p>
                       </div>
                     ))}
                   </div>
@@ -564,7 +571,7 @@ export default function StartConsultationPage() {
               </div>
               <div className="mt-8 flex justify-center">
                 <Button onClick={handleNextStep} className="px-8 py-3 text-base" disabled={!selectedPricing}>
-                  {t.continueButton}
+                  {t.continueButton || "Continuer"}
                 </Button>
               </div>
             </CardContent>
@@ -575,11 +582,11 @@ export default function StartConsultationPage() {
         {currentStep === 3 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.patientInfoTitle}</CardTitle>
-              <CardDescription>{t.patientInfoSubtitle}</CardDescription>
+              <CardTitle className="text-2xl">{t.patientInfoTitle || "Informations patient"}</CardTitle>
+              <CardDescription>{t.patientInfoSubtitle || "Renseignez vos informations médicales"}</CardDescription>
               {userEmail && (
                 <p className="text-sm text-gray-600">
-                  {t.loggedInAs} {userEmail}
+                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
                 </p>
               )}
             </CardHeader>
@@ -596,20 +603,20 @@ export default function StartConsultationPage() {
               <form className="space-y-6">
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="firstName">{t.firstNameLabel}</Label>
+                    <Label htmlFor="firstName">{t.firstNameLabel || "Prénom"}</Label>
                     <Input
                       id="firstName"
-                      placeholder={t.firstNameLabel}
+                      placeholder={t.firstNameLabel || "Prénom"}
                       value={firstName}
                       onChange={(e) => setFirstName(e.target.value)}
                       required
                     />
                   </div>
                   <div>
-                    <Label htmlFor="lastName">{t.lastNameLabel}</Label>
+                    <Label htmlFor="lastName">{t.lastNameLabel || "Nom"}</Label>
                     <Input
                       id="lastName"
-                      placeholder={t.lastNameLabel}
+                      placeholder={t.lastNameLabel || "Nom"}
                       value={lastName}
                       onChange={(e) => setLastName(e.target.value)}
                       required
@@ -618,7 +625,7 @@ export default function StartConsultationPage() {
                 </div>
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="email-patient">{t.emailLabel}</Label>
+                    <Label htmlFor="email-patient">{t.emailLabel || "Email"}</Label>
                     <Input
                       id="email-patient"
                       type="email"
@@ -628,41 +635,41 @@ export default function StartConsultationPage() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="phone">{t.phoneLabel}</Label>
+                    <Label htmlFor="phone">{t.phoneLabel || "Téléphone"}</Label>
                     <Input id="phone" type="tel" placeholder="+230 5xxx xxxx" />
                   </div>
                 </div>
                 <div className="grid md:grid-cols-3 gap-6">
                   <div>
-                    <Label htmlFor="birthDate">{t.birthDateLabel}</Label>
+                    <Label htmlFor="birthDate">{t.birthDateLabel || "Date de naissance"}</Label>
                     <Input id="birthDate" type="date" />
                   </div>
                   <div>
-                    <Label htmlFor="weight">{t.weightLabel}</Label>
+                    <Label htmlFor="weight">{t.weightLabel || "Poids (kg)"}</Label>
                     <Input id="weight" type="number" placeholder="70" />
                   </div>
                   <div>
-                    <Label htmlFor="height">{t.heightLabel}</Label>
+                    <Label htmlFor="height">{t.heightLabel || "Taille (cm)"}</Label>
                     <Input id="height" type="number" placeholder="170" />
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="medicalHistory">{t.medicalHistoryLabel}</Label>
-                  <Textarea id="medicalHistory" placeholder={`${t.medicalHistoryLabel}...`} />
+                  <Label htmlFor="medicalHistory">{t.medicalHistoryLabel || "Antécédents médicaux"}</Label>
+                  <Textarea id="medicalHistory" placeholder={`${t.medicalHistoryLabel || "Antécédents médicaux"}...`} />
                 </div>
                 <div>
-                  <Label>{t.currentTreatmentLabel}</Label>
+                  <Label>{t.currentTreatmentLabel || "Traitement en cours"}</Label>
                   <RadioGroup defaultValue="no" className="flex items-center space-x-4 mt-2">
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="yes" id="treatment-yes" />
-                      <Label htmlFor="treatment-yes">{t.treatmentYes}</Label>
+                      <Label htmlFor="treatment-yes">{t.treatmentYes || "Oui"}</Label>
                     </div>
                     <div className="flex items-center space-x-2">
                       <RadioGroupItem value="no" id="treatment-no" />
-                      <Label htmlFor="treatment-no">{t.treatmentNo}</Label>
+                      <Label htmlFor="treatment-no">{t.treatmentNo || "Non"}</Label>
                     </div>
                   </RadioGroup>
-                  <Textarea className="mt-2" placeholder={`${t.currentTreatmentLabel} (si oui)...`} />
+                  <Textarea className="mt-2" placeholder={`${t.currentTreatmentLabel || "Traitement en cours"} (si oui)...`} />
                 </div>
                 <div className="mt-8 flex justify-center">
                   <Button 
@@ -671,7 +678,7 @@ export default function StartConsultationPage() {
                     disabled={isLoading || !firstName || !lastName}
                   >
                     {isLoading && currentStep === 3 ? <Loader2 className="animate-spin mr-2" /> : null}
-                    {t.continueButton}
+                    {t.continueButton || "Continuer"}
                   </Button>
                 </div>
               </form>
@@ -683,17 +690,17 @@ export default function StartConsultationPage() {
         {currentStep === 4 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.paymentStepTitle}</CardTitle>
-              <CardDescription>{t.paymentStepSubtitle}</CardDescription>
+              <CardTitle className="text-2xl">{t.paymentStepTitle || "Paiement"}</CardTitle>
+              <CardDescription>{t.paymentStepSubtitle || "Finalisez votre inscription"}</CardDescription>
               {userEmail && (
                 <p className="text-sm text-gray-600">
-                  {t.loggedInAs} {userEmail}
+                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
                 </p>
               )}
             </CardHeader>
             <CardContent className="max-w-md mx-auto">
               <div className="mb-6">
-                <h3 className="font-medium text-gray-900 mb-4">{t.paymentMethodsAcceptedTitle}</h3>
+                <h3 className="font-medium text-gray-900 mb-4">{t.paymentMethodsAcceptedTitle || "Modes de paiement acceptés"}</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center justify-center p-3 border border-gray-200 rounded-lg text-sm">
                     <HeartPulse className="text-blue-600 mr-2" size={20} /> Visa
@@ -711,36 +718,36 @@ export default function StartConsultationPage() {
               </div>
               <form className="space-y-4">
                 <div>
-                  <Label htmlFor="cardNumber">{t.cardNumberLabel}</Label>
+                  <Label htmlFor="cardNumber">{t.cardNumberLabel || "Numéro de carte"}</Label>
                   <Input id="cardNumber" placeholder="1234 5678 9012 3456" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="expiryDate">{t.expiryLabel}</Label>
+                    <Label htmlFor="expiryDate">{t.expiryLabel || "Expiration"}</Label>
                     <Input id="expiryDate" placeholder="MM/AA" />
                   </div>
                   <div>
-                    <Label htmlFor="cvv">{t.cvvLabel}</Label>
+                    <Label htmlFor="cvv">{t.cvvLabel || "CVV"}</Label>
                     <Input id="cvv" placeholder="123" />
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="cardHolderName">{t.cardholderNameLabel}</Label>
-                  <Input id="cardHolderName" placeholder={t.cardholderNameLabel} />
+                  <Label htmlFor="cardHolderName">{t.cardholderNameLabel || "Nom du titulaire"}</Label>
+                  <Input id="cardHolderName" placeholder={t.cardholderNameLabel || "Nom du titulaire"} />
                 </div>
               </form>
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-900">{t.selectedPlanLabel}</span>
+                  <span className="font-medium text-gray-900">{t.selectedPlanLabel || "Plan sélectionné"}</span>
                   <span className="font-bold text-blue-600">{getSelectedPlanInfo()}</span>
                 </div>
               </div>
               <div className="mt-8 space-y-4">
                 <Button onClick={handleNextStep} className="w-full px-6 py-3 text-base font-medium">
-                  {t.completeRegistrationButton}
+                  {t.completeRegistrationButton || "Finaliser l'inscription"}
                 </Button>
                 <p className="text-xs text-gray-500 text-center flex items-center justify-center">
-                  <Lock size={12} className="mr-1" /> {t.securePaymentText}
+                  <Lock size={12} className="mr-1" /> {t.securePaymentText || "Paiement sécurisé"}
                 </p>
               </div>
             </CardContent>
@@ -754,11 +761,11 @@ export default function StartConsultationPage() {
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check className="text-green-600" size={32} />
               </div>
-              <CardTitle className="text-2xl">{t.registrationSuccessTitle}</CardTitle>
-              <CardDescription>{t.registrationSuccessMessage}</CardDescription>
+              <CardTitle className="text-2xl">{t.registrationSuccessTitle || "Inscription réussie !"}</CardTitle>
+              <CardDescription>{t.registrationSuccessMessage || "Votre compte a été créé avec succès."}</CardDescription>
               {userEmail && (
                 <p className="text-sm text-gray-600">
-                  {t.loggedInAs} {userEmail}
+                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
                 </p>
               )}
             </CardHeader>
@@ -767,14 +774,14 @@ export default function StartConsultationPage() {
                 {successDashboardLinks.map((link) => (
                   <div key={link.titleKey} className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
                     {link.icon}
-                    <h3 className="font-medium text-gray-900 text-sm">{t[link.titleKey]}</h3>
-                    <p className="text-xs text-gray-600">{t[link.descKey]}</p>
+                    <h3 className="font-medium text-gray-900 text-sm">{t[link.titleKey] || link.titleKey}</h3>
+                    <p className="text-xs text-gray-600">{t[link.descKey] || link.descKey}</p>
                   </div>
                 ))}
               </div>
               <div className="flex justify-center">
                 <Link href="/dashboard" passHref>
-                  <Button className="px-8 py-3 text-base font-medium">{t.goToDashboardButton}</Button>
+                  <Button className="px-8 py-3 text-base font-medium">{t.goToDashboardButton || "Aller au tableau de bord"}</Button>
                 </Link>
               </div>
             </CardContent>
