@@ -66,7 +66,7 @@ export default function StartConsultationPage() {
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
-  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false) // No undefined state, default to false
+  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
   const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
 
@@ -83,45 +83,24 @@ export default function StartConsultationPage() {
   const [patientEmergencyContactPhone, setPatientEmergencyContactPhone] = useState("")
 
   // États de la tarification
-  const [pricingLoading, setPricingLoading] = useState(false)
+  const [pricingLoading, setPricingLoading] = useState(false) // Kept for potential future use in pricing step
   const [pricingError, setPricingError] = useState<string | null>(null)
 
-  // Fonction pour créer le profil utilisateur manuellement
   const createUserProfile = async (userId: string, email: string) => {
     try {
-      const { error } = await supabase.from("profiles").insert([
-        {
-          id: userId,
-          full_name: "", // Sera rempli à l'étape 3
-          // updated_at will be handled by the database trigger
-        },
-      ])
-
-      if (error) {
-        console.error("Erreur lors de la création du profil:", error)
-      } else {
-        console.log("Profil utilisateur créé avec succès")
-      }
+      const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
+      if (error) console.error("Erreur lors de la création du profil:", error)
+      else console.log("Profil utilisateur créé avec succès")
     } catch (error) {
       console.error("Erreur lors de la création du profil:", error)
     }
   }
 
-  // Fonction pour vérifier/créer le profil si nécessaire
   const ensureUserProfile = async (userId: string, email: string) => {
     try {
-      const { data: existingProfile, error: checkError } = await supabase
-        .from("profiles")
-        .select("id")
-        .eq("id", userId)
-        .single()
-
-      if (checkError && checkError.code === "PGRST116") {
-        // PGRST116: Row does not exist
-        await createUserProfile(userId, email)
-      } else if (checkError) {
-        console.error("Erreur lors de la vérification du profil:", checkError)
-      }
+      const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
+      if (error && error.code === "PGRST116") await createUserProfile(userId, email)
+      else if (error) console.error("Erreur lors de la vérification du profil:", error)
     } catch (error) {
       console.error("Erreur lors de la vérification du profil:", error)
     }
@@ -132,34 +111,18 @@ export default function StartConsultationPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session) {
-        // This block handles INITIAL_SESSION (if session exists) and SIGNED_IN
         setIsUserLoggedIn(true)
         setUserEmail(session.user.email)
-
-        // Ensure profile is created/checked.
-        // This is called for any event where a session is present.
-        // ensureUserProfile is idempotent (checks if profile exists before creating).
         await ensureUserProfile(session.user.id, session.user.email || "")
-
-        // Adjust step only if currently on the authentication step (step 1)
-        setCurrentStep((prevStep) => {
-          if (prevStep === 1) {
-            return 2 // Move to next step (pricing)
-          }
-          return prevStep // Otherwise, stay on current step
-        })
+        setCurrentStep((prevStep) => (prevStep === 1 ? 2 : prevStep))
       } else {
-        // This block handles INITIAL_SESSION (if no session) and SIGNED_OUT
         setIsUserLoggedIn(false)
         setUserEmail(undefined)
-        setCurrentStep(1) // Always go to step 1 if no session or signed out
+        setCurrentStep(1)
       }
     })
-
-    return () => {
-      subscription.unsubscribe()
-    }
-  }, [supabase]) // Dependencies: supabase. ensureUserProfile is stable as it's defined outside.
+    return () => subscription.unsubscribe()
+  }, [supabase])
 
   const pricingOptions: PricingOption[] = [
     {
@@ -213,7 +176,6 @@ export default function StartConsultationPage() {
     setIsLoading(true)
     setAuthError(null)
     setSignupSuccessMessage(null)
-
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
 
@@ -222,35 +184,26 @@ export default function StartConsultationPage() {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
-          },
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation` },
         })
-
-        if (error) {
-          if (error.message.includes("User already registered")) {
-            setAuthError("Un compte avec cet email existe déjà. Essayez de vous connecter.")
-          } else {
-            setAuthError(`Erreur d'inscription: ${error.message}`)
-          }
-        } else if (data.user && !data.session) {
-          // Email de confirmation envoyé
+        if (error)
+          setAuthError(
+            error.message.includes("User already registered")
+              ? "Un compte avec cet email existe déjà. Essayez de vous connecter."
+              : `Erreur d'inscription: ${error.message}`,
+          )
+        else if (data.user && !data.session)
           setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
-        }
-        // Si data.session existe (auto-confirm or already logged in), onAuthStateChange handles navigation
       } else {
-        // Login
         const { error } = await supabase.auth.signInWithPassword({ email, password })
-        if (error) {
-          if (error.message.includes("Invalid login credentials")) {
-            setAuthError("Email ou mot de passe incorrect.")
-          } else {
-            setAuthError(`Erreur de connexion: ${error.message}`)
-          }
-        }
-        // Si la connexion réussit, onAuthStateChange handles navigation
+        if (error)
+          setAuthError(
+            error.message.includes("Invalid login credentials")
+              ? "Email ou mot de passe incorrect."
+              : `Erreur de connexion: ${error.message}`,
+          )
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur d'authentification:", error)
       setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion.")
     } finally {
@@ -262,6 +215,95 @@ export default function StartConsultationPage() {
     setAuthView(value as AuthView)
     setAuthError(null)
     setSignupSuccessMessage(null)
+  }
+
+  const handleNextStep = async () => {
+    // Logic for Step 3: Patient Information
+    if (currentStep === 3) {
+      if (!firstName || !lastName) {
+        setAuthError(t.fillRequiredFieldsError || "Veuillez remplir le prénom et le nom.")
+        return
+      }
+      setIsLoading(true)
+      setAuthError(null)
+      let stepAdvancedSuccessfully = false
+
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+
+        if (!user) {
+          setAuthError("Utilisateur non trouvé. Veuillez vous reconnecter.")
+        } else {
+          // 1. Save to 'patients' table
+          const patientData = {
+            user_id: user.id,
+            first_name: firstName,
+            last_name: lastName,
+            date_of_birth: patientDateOfBirth || null,
+            gender: patientGender || null,
+            phone_number: patientPhoneNumber || null,
+            email: user.email,
+            address: patientAddress || null,
+            city: patientCity || null,
+            country: patientCountry || null,
+            emergency_contact_name: patientEmergencyContactName || null,
+            emergency_contact_phone: patientEmergencyContactPhone || null,
+          }
+          const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
+
+          if (patientError) {
+            console.error("Patient save error:", patientError)
+            setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
+          } else {
+            // 2. Update 'profiles' table
+            const fullName = `${firstName} ${lastName}`
+            const { error: profileError } = await supabase
+              .from("profiles")
+              .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
+
+            if (profileError) {
+              console.error("Profile save error:", profileError)
+              setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
+            } else {
+              // All successful
+              setCurrentStep(4)
+              stepAdvancedSuccessfully = true
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error("Erreur inattendue dans handleNextStep (step 3):", error)
+        setAuthError(`Une erreur inattendue est survenue: ${error.message}`)
+      } finally {
+        setIsLoading(false)
+      }
+
+      // If step was not advanced due to an error, we stay on step 3.
+      // The user will see the error and isLoading will be false.
+      return // Explicitly return to avoid falling through to other step logic for this click
+    }
+
+    // Logic for advancing from other steps
+    if (currentStep === 1) {
+      // Should be handled by auth useEffect, but as a fallback
+      setCurrentStep(2)
+    } else if (currentStep === 2) {
+      // Advancing from step 2 (pricing)
+      if (!selectedPricing) {
+        setPricingError(t.selectPlanError || "Veuillez sélectionner un plan tarifaire.")
+        return
+      }
+      setPricingError(null) // Clear previous pricing error
+      setCurrentStep(3)
+    } else if (currentStep === 4) {
+      // Advancing from step 4 (payment)
+      // TODO: Add actual payment processing logic here
+      // For now, just advance to success
+      console.log("Simulating payment success and advancing to step 5")
+      setCurrentStep(5)
+    }
   }
 
   const secondOpinionFeatures = [
@@ -305,64 +347,9 @@ export default function StartConsultationPage() {
     },
   ]
 
-  const handleNextStep = async () => {
-    if (currentStep === 3) {
-      setIsLoading(true)
-      setAuthError(null)
-
-      const {
-        data: { user },
-      } = await supabase.auth.getUser()
-
-      if (user) {
-        // 1. Save to 'patients' table
-        const patientData = {
-          user_id: user.id,
-          first_name: firstName,
-          last_name: lastName,
-          date_of_birth: patientDateOfBirth || null,
-          gender: patientGender || null,
-          phone_number: patientPhoneNumber || null,
-          email: user.email,
-          address: patientAddress || null,
-          city: patientCity || null,
-          country: patientCountry || null,
-          emergency_contact_name: patientEmergencyContactName || null,
-          emergency_contact_phone: patientEmergencyContactPhone || null,
-        }
-
-        const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-
-        if (patientError) {
-          setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
-          setIsLoading(false)
-          return
-        }
-
-        // 2. Update 'profiles' table
-        const fullName = `${firstName} ${lastName}`
-        const { error: profileError } = await supabase
-          .from("profiles")
-          .upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
-
-        if (profileError) {
-          setAuthError(`Erreur lors de la mise à jour du profil: ${profileError.message}`)
-          setIsLoading(false)
-          return
-        }
-      }
-      setIsLoading(false)
-    }
-
-    if (currentStep < 4) {
-      setCurrentStep(currentStep + 1)
-    } else if (currentStep === 4) {
-      setCurrentStep(5)
-    }
-  }
-
   const handleSelectPricing = (id: string) => {
     setSelectedPricing(id)
+    if (pricingError) setPricingError(null) // Clear error when a selection is made
   }
 
   const getSelectedPlanInfo = () => {
@@ -559,6 +546,15 @@ export default function StartConsultationPage() {
               )}
             </CardHeader>
             <CardContent>
+              {pricingError && (
+                <div
+                  className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
+                  role="alert"
+                >
+                  <AlertTriangle className="inline-block mr-2 h-5 w-5" />
+                  <span className="block sm:inline">{pricingError}</span>
+                </div>
+              )}
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
                 {pricingOptions.map((option) => (
                   <div
@@ -630,9 +626,9 @@ export default function StartConsultationPage() {
                 <Button
                   onClick={handleNextStep}
                   className="px-8 py-3 text-base"
-                  disabled={!selectedPricing || pricingLoading || !!pricingError}
+                  disabled={isLoading || !selectedPricing} // isLoading is general, selectedPricing for this step
                 >
-                  {pricingLoading ? (
+                  {isLoading && currentStep === 2 ? ( // Show loader if loading specifically for this step
                     <>
                       <Loader2 className="animate-spin mr-2" size={16} />
                       Chargement...
@@ -659,7 +655,7 @@ export default function StartConsultationPage() {
               )}
             </CardHeader>
             <CardContent>
-              {authError && currentStep === 3 && (
+              {authError && ( // General authError can be shown here if relevant from previous steps or step 3 itself
                 <div
                   className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
                   role="alert"
@@ -898,6 +894,7 @@ export default function StartConsultationPage() {
               </div>
               <div className="mt-8 space-y-4">
                 <Button onClick={handleNextStep} className="w-full px-6 py-3 text-base font-medium">
+                  {isLoading && currentStep === 4 ? <Loader2 className="animate-spin mr-2" /> : null}
                   {t.completeRegistrationButton || "Finaliser l'inscription"}
                 </Button>
                 <p className="text-xs text-gray-500 text-center flex items-center justify-center">
