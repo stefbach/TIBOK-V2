@@ -93,7 +93,7 @@ export default function StartConsultationPage() {
         {
           id: userId,
           full_name: "", // Sera rempli à l'étape 3
-          created_at: new Date().toISOString(),
+          // updated_at will be handled by the database trigger
         },
       ])
 
