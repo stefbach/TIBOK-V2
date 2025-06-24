@@ -196,39 +196,91 @@ export default function StartConsultationPage() {
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
+            data: {
+              full_name: '', // Préparer pour les données du profil
+            }
           },
         })
         
         if (error) {
-          setAuthError(error.message)
+          console.error("Supabase signup error:", error)
+          
+          // Gestion spécifique des erreurs courantes
+          if (error.message.includes("Database error saving new user")) {
+            setAuthError("Erreur de configuration de la base de données. Veuillez contacter le support.")
+          } else if (error.message.includes("User already registered")) {
+            setAuthError("Un compte avec cet email existe déjà. Essayez de vous connecter.")
+          } else if (error.message.includes("Invalid email")) {
+            setAuthError("Adresse email invalide.")
+          } else if (error.message.includes("Password should be at least")) {
+            setAuthError("Le mot de passe doit contenir au moins 6 caractères.")
+          } else {
+            setAuthError(`Erreur d'inscription: ${error.message}`)
+          }
         } else if (data.user && data.user.identities?.length === 0) {
-          setAuthError(t.authErrorUserExistsOrUnconfirmed || "Un utilisateur avec cet email existe déjà ou nécessite une confirmation.")
+          setAuthError("Un utilisateur avec cet email existe déjà. Essayez de vous connecter.")
         } else if (data.session) {
           // Auto-confirmé et connecté
-          console.log("Utilisateur inscrit et connecté")
+          console.log("Utilisateur inscrit et connecté automatiquement")
+          // Créer le profil manuellement si le trigger a échoué
+          await createUserProfile(data.user.id, data.user.email || '')
         } else if (data.user) {
           // Email de confirmation envoyé
-          setSignupSuccessMessage(t.authSuccessSignup || "Vérifiez votre email pour confirmer votre inscription.")
+          setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
         } else {
-          setAuthError(t.authErrorGeneric || "Une erreur est survenue.")
+          setAuthError("Une erreur inattendue est survenue lors de l'inscription.")
         }
       } else {
         // Login
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         
         if (error) {
-          setAuthError(error.message)
+          console.error("Supabase signin error:", error)
+          
+          // Gestion spécifique des erreurs de connexion
+          if (error.message.includes("Invalid login credentials")) {
+            setAuthError("Email ou mot de passe incorrect.")
+          } else if (error.message.includes("Email not confirmed")) {
+            setAuthError("Veuillez confirmer votre email avant de vous connecter.")
+          } else if (error.message.includes("Too many requests")) {
+            setAuthError("Trop de tentatives. Veuillez patienter avant de réessayer.")
+          } else {
+            setAuthError(`Erreur de connexion: ${error.message}`)
+          }
         } else if (data.session) {
-          console.log("Utilisateur connecté")
+          console.log("Utilisateur connecté avec succès")
         } else {
-          setAuthError(t.authErrorInvalidLogin || "Email ou mot de passe incorrect.")
+          setAuthError("Impossible de se connecter. Veuillez réessayer.")
         }
       }
     } catch (error) {
       console.error("Erreur d'authentification:", error)
-      setAuthError(t.authErrorGeneric || "Une erreur est survenue.")
+      setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion.")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  // Fonction pour créer le profil utilisateur manuellement
+  const createUserProfile = async (userId: string, email: string) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .insert([
+          {
+            id: userId,
+            full_name: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ])
+      
+      if (error) {
+        console.error("Erreur lors de la création du profil:", error)
+        // Ne pas bloquer l'utilisateur pour cette erreur
+      }
+    } catch (error) {
+      console.error("Erreur lors de la création du profil:", error)
     }
   }
 
