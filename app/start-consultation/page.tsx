@@ -660,8 +660,19 @@ export default function StartConsultationPage() {
                 </div>
               </div>
               <div className="mt-8 flex justify-center">
-                <Button onClick={handleNextStep} className="px-8 py-3 text-base" disabled={!selectedPricing}>
-                  {t.continueButton || "Continuer"}
+                <Button 
+                  onClick={handleNextStep} 
+                  className="px-8 py-3 text-base" 
+                  disabled={!selectedPricing || pricingLoading || !!pricingError}
+                >
+                  {pricingLoading ? (
+                    <>
+                      <Loader2 className="animate-spin mr-2" size={16} />
+                      Chargement...
+                    </>
+                  ) : (
+                    t.continueButton || "Continuer"
+                  )}
                 </Button>
               </div>
             </CardContent>
