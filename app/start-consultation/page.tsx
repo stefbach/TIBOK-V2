@@ -66,7 +66,7 @@ export default function StartConsultationPage() {
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
-  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
+  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false) // No undefined state, default to false
   const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
   const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
 
@@ -117,6 +117,7 @@ export default function StartConsultationPage() {
         .single()
 
       if (checkError && checkError.code === "PGRST116") {
+        // PGRST116: Row does not exist
         await createUserProfile(userId, email)
       } else if (checkError) {
         console.error("Erreur lors de la vérification du profil:", checkError)
@@ -126,30 +127,39 @@ export default function StartConsultationPage() {
     }
   }
 
-  // REFACTORED useEffect to prevent infinite loops
   useEffect(() => {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      const userIsLoggedIn = !!session
-      setIsUserLoggedIn(userIsLoggedIn)
-      setUserEmail(session?.user.email)
+      if (session) {
+        // This block handles INITIAL_SESSION (if session exists) and SIGNED_IN
+        setIsUserLoggedIn(true)
+        setUserEmail(session.user.email)
 
-      if (userIsLoggedIn) {
-        // Called on SIGNED_IN and on initial page load if session exists.
+        // Ensure profile is created/checked.
+        // This is called for any event where a session is present.
+        // ensureUserProfile is idempotent (checks if profile exists before creating).
         await ensureUserProfile(session.user.id, session.user.email || "")
-        // Use functional update to avoid depending on currentStep
-        setCurrentStep((prevStep) => (prevStep === 1 ? 2 : prevStep))
+
+        // Adjust step only if currently on the authentication step (step 1)
+        setCurrentStep((prevStep) => {
+          if (prevStep === 1) {
+            return 2 // Move to next step (pricing)
+          }
+          return prevStep // Otherwise, stay on current step
+        })
       } else {
-        // Called on SIGNED_OUT.
-        setCurrentStep(1)
+        // This block handles INITIAL_SESSION (if no session) and SIGNED_OUT
+        setIsUserLoggedIn(false)
+        setUserEmail(undefined)
+        setCurrentStep(1) // Always go to step 1 if no session or signed out
       }
     })
 
     return () => {
-      subscription?.unsubscribe()
+      subscription.unsubscribe()
     }
-  }, [supabase])
+  }, [supabase]) // Dependencies: supabase. ensureUserProfile is stable as it's defined outside.
 
   const pricingOptions: PricingOption[] = [
     {
@@ -227,7 +237,7 @@ export default function StartConsultationPage() {
           // Email de confirmation envoyé
           setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
         }
-        // Si data.session existe, onAuthStateChange s'occupera de la redirection
+        // Si data.session existe (auto-confirm or already logged in), onAuthStateChange handles navigation
       } else {
         // Login
         const { error } = await supabase.auth.signInWithPassword({ email, password })
@@ -238,7 +248,7 @@ export default function StartConsultationPage() {
             setAuthError(`Erreur de connexion: ${error.message}`)
           }
         }
-        // Si la connexion réussit, onAuthStateChange s'occupera de la redirection
+        // Si la connexion réussit, onAuthStateChange handles navigation
       }
     } catch (error) {
       console.error("Erreur d'authentification:", error)
