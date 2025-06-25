@@ -54,10 +54,10 @@ const navItems: NavItem[] = [
 ]
 
 // Mock user data for plan and consultations - replace with actual auth data later
-const mockUserStaticData = {
-  plan: "dashboardPlanFamily" as TranslationKey, // This will remain static for now
-  consultationsRemaining: 3, // This will remain static for now
-}
+// const mockUserStaticData = {
+//   plan: "dashboardPlanFamily" as TranslationKey, // This will remain static for now
+//   consultationsRemaining: 3, // This will remain static for now
+// }
 
 interface UserProfile {
   id: string
@@ -65,6 +65,9 @@ interface UserProfile {
   lastName: string | null
   avatarUrl: string | null
   email: string | undefined
+  // ADDED: Fields for plan and consultations
+  planNameKey?: TranslationKey | null // e.g., "pricingSoloPackTitle"
+  consultationsRemaining?: number | null
 }
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
@@ -79,6 +82,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const fetchUserData = async () => {
+      console.log("[DashboardLayout] fetchUserData: Démarrage")
       setIsLoadingUser(true)
       const {
         data: { user },
@@ -86,71 +90,96 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       } = await supabase.auth.getUser()
 
       if (authError) {
-        console.error("Error fetching auth user:", authError)
+        console.error("[DashboardLayout] fetchUserData: Erreur fetching auth user:", authError.message)
         setIsLoadingUser(false)
         return
       }
 
       if (user) {
+        console.log("[DashboardLayout] fetchUserData: Utilisateur authentifié trouvé:", user.id)
+        // Fetch profile and potentially subscription/plan data
+        // This is a simplified example. You might have a separate 'subscriptions' table.
         const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("*") // safer – works whatever the column names are
+          .from("profiles") // Assuming 'profiles' table might store plan info or link to it
+          .select("*, first_name, last_name, avatar_url, current_plan_id, consultations_left") // Example fields
           .eq("id", user.id)
           .single()
 
         if (profileError) {
-          console.error("Error fetching profile:", profileError)
-          // Still set basic user info if profile fetch fails but auth user exists
+          console.error("[DashboardLayout] fetchUserData: Erreur fetching profile:", profileError.message)
           setCurrentUser({
             id: user.id,
             firstName: user.email?.split("@")[0] || "User",
             lastName: "",
             avatarUrl: null,
             email: user.email,
+            planNameKey: "dashboardPlanDefault" as TranslationKey, // Fallback plan name
+            consultationsRemaining: 0, // Fallback
           })
         } else if (profile) {
+          console.log("[DashboardLayout] fetchUserData: Profil trouvé:", profile)
+          // Example: Map profile.current_plan_id to a TranslationKey for plan name
+          // This mapping logic would depend on how you store plan IDs and their display names.
+          let planNameKey: TranslationKey | null = null
+          if (profile.current_plan_id === "solo") planNameKey = "pricingSoloPackTitle"
+          else if (profile.current_plan_id === "family") planNameKey = "pricingFamilyPackTitle"
+          else if (profile.current_plan_id === "payperuse-local") planNameKey = "pricingPayPerUseLocalTitle"
+          else if (profile.current_plan_id === "payperuse-tourist") planNameKey = "pricingPayPerUseTouristTitle"
+          else planNameKey = "dashboardPlanDefault" as TranslationKey
+
           setCurrentUser({
             id: user.id,
             firstName: profile.first_name,
             lastName: profile.last_name,
             avatarUrl: profile.avatar_url,
             email: user.email,
+            planNameKey: planNameKey,
+            consultationsRemaining: profile.consultations_left ?? 0,
           })
         } else {
-          // Profile not found, but user exists. Create a basic profile or use email.
+          console.log("[DashboardLayout] fetchUserData: Profil non trouvé, utilisation des valeurs par défaut.")
           setCurrentUser({
             id: user.id,
             firstName: user.email?.split("@")[0] || "User",
             lastName: "",
             avatarUrl: null,
             email: user.email,
+            planNameKey: "dashboardPlanDefault" as TranslationKey,
+            consultationsRemaining: 0,
           })
         }
       } else {
-        // No user session
+        console.log("[DashboardLayout] fetchUserData: Pas d'utilisateur authentifié.")
         setCurrentUser(null)
       }
       setIsLoadingUser(false)
+      console.log("[DashboardLayout] fetchUserData: Terminé. isLoadingUser:", false)
     }
 
     fetchUserData()
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("DashboardLayout Auth Event:", event)
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event: string, session: any) => {
+      console.log("[DashboardLayout] Auth Event:", event, "Session:", session ? "Exists" : "Null")
       if (event === "SIGNED_IN" || event === "USER_UPDATED" || event === "INITIAL_SESSION") {
-        await fetchUserData()
+        if (session?.user && (!currentUser || currentUser.id !== session.user.id || event === "USER_UPDATED")) {
+          console.log(
+            "[DashboardLayout] Auth Event: SIGNED_IN or USER_UPDATED or INITIAL_SESSION with user. Re-fetching user data.",
+          )
+          await fetchUserData()
+        } else if (!session?.user) {
+          setCurrentUser(null)
+        }
       } else if (event === "SIGNED_OUT") {
+        console.log("[DashboardLayout] Auth Event: SIGNED_OUT. Clearing user data.")
         setCurrentUser(null)
-        setIsLoadingUser(false)
-        // Optionally redirect to login or home page
-        // window.location.href = '/';
+        // router.push("/start-consultation"); // Optionally redirect
       }
     })
 
     return () => {
       authListener?.subscription.unsubscribe()
     }
-  }, [supabase])
+  }, [supabase, router]) // currentUser removed from deps to avoid re-fetch loops if only currentUser changes
 
   const displayName = currentUser
     ? [
@@ -182,6 +211,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       router.refresh() // Forcer un rafraîchissement pour que le serveur re-évalue l'état
     }
   }
+
+  const planDisplayKey = currentUser?.planNameKey || ("dashboardPlanDefault" as TranslationKey)
+  const consultationsDisplay = currentUser?.consultationsRemaining ?? 0
 
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
@@ -265,11 +297,19 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                     <Crown size={20} />
                   </div>
                   <div className="ml-3">
-                    {/* These still use mock data */}
-                    <p className="text-sm font-medium text-gray-900">{t[mockUserStaticData.plan]}</p>
-                    <p className="text-xs text-gray-500">
-                      {mockUserStaticData.consultationsRemaining} {t.dashboardConsultationsRemaining}
-                    </p>
+                    {isLoadingUser ? (
+                      <>
+                        <Skeleton className="h-4 w-24 mb-1" />
+                        <Skeleton className="h-3 w-32" />
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium text-gray-900">{t[planDisplayKey]}</p>
+                        <p className="text-xs text-gray-500">
+                          {consultationsDisplay} {t.dashboardConsultationsRemaining}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

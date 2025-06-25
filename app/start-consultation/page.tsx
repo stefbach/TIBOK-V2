@@ -189,7 +189,12 @@ export default function StartConsultationPage() {
   // Initialisation - Effect séparé et stable
   useEffect(() => {
     let mounted = true
-    console.log("[DEBUG_SPIN] StartConsultationPage useEffect initializePage triggered")
+    console.log(
+      "[DEBUG_SPIN] StartConsultationPage useEffect initializePage triggered. Current step:",
+      state.currentStep,
+      "User:",
+      state.user?.id,
+    )
 
     const initializePage = async () => {
       console.log("[DEBUG_SPIN] initializePage: Démarrage")
@@ -202,7 +207,6 @@ export default function StartConsultationPage() {
         }
       }
 
-      // Vérifier la session si Supabase est disponible
       if (supabase) {
         console.log("[DEBUG_SPIN] initializePage: Supabase disponible, vérification de la session.")
         try {
@@ -218,55 +222,41 @@ export default function StartConsultationPage() {
           }
 
           if (mounted && session?.user) {
-            updateState({ user: session.user })
+            updateState({ user: session.user }) // Update user state first
             console.log("[DEBUG_SPIN] initializePage: Session utilisateur trouvée:", session.user.id)
 
-            try {
-              const { data: patientData, error: patientError } = await supabase
-                .from("patients")
-                .select("user_id, first_name, last_name") // Sélectionner quelques champs pour confirmer
-                .eq("user_id", session.user.id)
-                .maybeSingle()
+            // Check for patient data
+            const { data: patientData, error: patientError } = await supabase
+              .from("patients")
+              .select("user_id, first_name, last_name")
+              .eq("user_id", session.user.id)
+              .maybeSingle()
 
-              if (patientError && mounted) {
-                console.error("[DEBUG_SPIN] initializePage: Erreur récupération patient:", patientError.message)
-                // Si erreur patient, on va à l'étape 2 pour permettre de continuer le flux
-                updateState({
-                  error: `Erreur données patient: ${patientError.message}`,
-                  currentStep: 2,
-                  isInitialized: true,
-                })
-                return
-              }
+            if (patientError && mounted) {
+              console.error("[DEBUG_SPIN] initializePage: Erreur récupération patient:", patientError.message)
+              updateState({
+                error: `Erreur données patient: ${patientError.message}`,
+                currentStep: 2, // Proceed to plan selection if patient data fetch fails
+                isInitialized: true,
+              })
+              return
+            }
 
-              console.log("[DEBUG_SPIN] initializePage: Données patient récupérées:", patientData)
+            console.log("[DEBUG_SPIN] initializePage: Données patient récupérées:", patientData)
 
-              // Vérifier si le patient a des informations de base (prénom/nom)
-              // Cela indique qu'il a probablement passé l'étape 3.
-              if (patientData && patientData.first_name && patientData.last_name && mounted) {
-                console.log("[DEBUG_SPIN] initializePage: Patient existe avec prénom/nom. Redirection vers /dashboard.")
-                router.push("/dashboard")
-                // Ne pas mettre isInitialized à true ici, car on redirige.
-                // La page actuelle ne devrait pas s'afficher.
-                return
-              } else if (mounted) {
-                // Patient n'existe pas ou n'a pas complété les infos, aller à l'étape de sélection de tarif
-                console.log(
-                  "[DEBUG_SPIN] initializePage: Patient n'existe pas ou infos incomplètes. Aller à l'étape 2 (Tarification).",
-                )
-                updateState({ currentStep: 2, isInitialized: true })
-              }
-            } catch (e: any) {
-              console.warn("[DEBUG_SPIN] initializePage: Erreur inattendue vérification patient:", e.message)
-              if (mounted)
-                updateState({
-                  currentStep: 2,
-                  isInitialized: true,
-                  error: "Erreur lors de la vérification des informations patient.",
-                })
+            if (patientData && patientData.first_name && patientData.last_name && mounted) {
+              console.log(
+                "[DEBUG_SPIN] initializePage: Patient existant avec profil complet. Redirection vers /dashboard.",
+              )
+              router.push("/dashboard")
+              return // Important: return to prevent further state updates on this page
+            } else if (mounted) {
+              console.log(
+                "[DEBUG_SPIN] initializePage: Patient n'existe pas ou profil incomplet. Aller à l'étape 2 (Tarification).",
+              )
+              updateState({ currentStep: 2, isInitialized: true })
             }
           } else if (mounted) {
-            // Pas d'utilisateur connecté, rester à l'étape 1
             console.log(
               "[DEBUG_SPIN] initializePage: Pas de session utilisateur. Aller à l'étape 1 (Authentification).",
             )
@@ -285,18 +275,23 @@ export default function StartConsultationPage() {
       }
     }
 
-    initializePage()
+    // Only run initializePage if not already initialized or if user state changes (e.g. after login)
+    // This helps prevent re-running complex logic if other minor state changes occur.
+    if (!state.isInitialized || (state.isInitialized && !state.user && supabase)) {
+      initializePage()
+    }
 
     return () => {
       console.log("[DEBUG_SPIN] StartConsultationPage useEffect cleanup")
       mounted = false
     }
-  }, [searchParams, router, updateState, pricingOptions]) // pricingOptions ajouté aux dépendances
+  }, [searchParams, router, updateState, pricingOptions, state.isInitialized, state.user]) // Added state.isInitialized and state.user
 
   // Authentification
   const handleAuth = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault()
+      console.log("[DEBUG_SPIN] handleAuth: Démarrage, vue:", state.authView)
 
       if (!supabase) {
         updateState({ error: "Service d'authentification non disponible" })
@@ -310,6 +305,7 @@ export default function StartConsultationPage() {
         const password = state.authView === "signup" ? state.signupPassword : state.loginPassword
 
         if (state.authView === "signup") {
+          console.log("[DEBUG_SPIN] handleAuth: Tentative d'inscription pour:", email)
           const { data, error } = await supabase.auth.signUp({
             email,
             password,
@@ -319,38 +315,107 @@ export default function StartConsultationPage() {
           })
 
           if (error) {
+            console.error("[DEBUG_SPIN] handleAuth: Erreur d'inscription:", error.message)
             updateState({
               error: error.message.includes("User already registered")
                 ? "Un compte avec cet email existe déjà."
                 : `Erreur d'inscription: ${error.message}`,
             })
           } else if (data.user && !data.session) {
+            console.log(
+              "[DEBUG_SPIN] handleAuth: Inscription réussie, en attente de confirmation email pour:",
+              data.user.id,
+            )
             updateState({
               error: null,
-              currentStep: 1,
+              // currentStep: 1, // Keep on step 1, show confirmation message
             })
             alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
+          } else if (data.user && data.session) {
+            // This case might happen if email confirmation is off or auto-confirmed
+            console.log("[DEBUG_SPIN] handleAuth: Inscription réussie et session créée (auto-confirm?):", data.user.id)
+            updateState({ user: data.user, error: null }) // Update user state
+            // Proactively check patient data and redirect if possible
+            const { data: patientData } = await supabase
+              .from("patients")
+              .select("user_id, first_name, last_name")
+              .eq("user_id", data.user.id)
+              .maybeSingle()
+            if (patientData && patientData.first_name && patientData.last_name) {
+              console.log(
+                "[DEBUG_SPIN] handleAuth (signup auto-confirm): Patient existant avec profil complet. Redirection vers /dashboard.",
+              )
+              router.push("/dashboard")
+              return
+            } else {
+              console.log(
+                "[DEBUG_SPIN] handleAuth (signup auto-confirm): Patient n'existe pas ou profil incomplet. Aller à l'étape 2.",
+              )
+              updateState({ currentStep: 2 })
+            }
           }
         } else {
+          // Login view
+          console.log("[DEBUG_SPIN] handleAuth: Tentative de connexion pour:", email)
           const { data, error } = await supabase.auth.signInWithPassword({ email, password })
 
           if (error) {
+            console.error("[DEBUG_SPIN] handleAuth: Erreur de connexion:", error.message)
             updateState({
               error: error.message.includes("Invalid login credentials")
                 ? "Email ou mot de passe incorrect."
                 : `Erreur de connexion: ${error.message}`,
             })
           } else if (data.user) {
-            updateState({ user: data.user, currentStep: 2, error: null })
+            console.log("[DEBUG_SPIN] handleAuth: Connexion réussie pour:", data.user.id)
+            updateState({ user: data.user, error: null }) // Update user state
+
+            // Proactively check patient data and redirect if possible
+            const { data: patientData, error: patientError } = await supabase
+              .from("patients")
+              .select("user_id, first_name, last_name")
+              .eq("user_id", data.user.id)
+              .maybeSingle()
+
+            if (patientError) {
+              console.error(
+                "[DEBUG_SPIN] handleAuth (login): Erreur récupération patient post-login:",
+                patientError.message,
+              )
+              updateState({ currentStep: 2 }) // Proceed to plan selection
+              return
+            }
+
+            if (patientData && patientData.first_name && patientData.last_name) {
+              console.log(
+                "[DEBUG_SPIN] handleAuth (login): Patient existant avec profil complet. Redirection vers /dashboard.",
+              )
+              router.push("/dashboard")
+              return // Important: return to prevent further state updates on this page
+            } else {
+              console.log(
+                "[DEBUG_SPIN] handleAuth (login): Patient n'existe pas ou profil incomplet. Aller à l'étape 2.",
+              )
+              updateState({ currentStep: 2 })
+            }
           }
         }
       } catch (error: any) {
-        updateState({ error: "Erreur de connexion. Vérifiez votre connexion internet." })
+        console.error("[DEBUG_SPIN] handleAuth: Erreur globale:", error.message)
+        updateState({ error: "Erreur d'authentification. Vérifiez votre connexion internet." })
       } finally {
         updateState({ isLoading: false })
       }
     },
-    [state.authView, state.signupEmail, state.loginEmail, state.signupPassword, state.loginPassword, updateState],
+    [
+      state.authView,
+      state.signupEmail,
+      state.loginEmail,
+      state.signupPassword,
+      state.loginPassword,
+      updateState,
+      router,
+    ],
   )
 
   // Navigation entre étapes
