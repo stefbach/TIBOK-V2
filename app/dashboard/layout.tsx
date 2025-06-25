@@ -20,6 +20,7 @@ import {
 } from "lucide-react"
 import LanguageSwitcher from "@/components/language-switcher"
 import { useLanguage } from "@/contexts/language-context"
+import { useRouter } from "next/navigation" // Importer useRouter
 import { translations, type TranslationKey } from "@/lib/translations"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -70,6 +71,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const [activeTab, setActiveTab] = useState("dashboard")
   const { language } = useLanguage()
   const t = translations[language]
+  const router = useRouter() // Initialiser le router
   const supabase = getSupabaseBrowserClient()
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
@@ -166,6 +168,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     ? `${(currentUser.firstName || "U").charAt(0)}${(currentUser.lastName || "").charAt(0)}`
     : "U"
 
+  const handleLogout = async () => {
+    console.log("[DashboardLayout] handleLogout: Attempting to sign out...")
+    const { error } = await supabase.auth.signOut()
+    if (error) {
+      console.error("[DashboardLayout] handleLogout: Error during signOut:", error.message)
+      // Optionnel: Afficher un toast d'erreur à l'utilisateur
+    } else {
+      console.log("[DashboardLayout] handleLogout: SignOut successful. Redirecting...")
+      setCurrentUser(null) // Mettre à jour l'état local immédiatement
+      setIsLoadingUser(false) // S'assurer que l'état de chargement est faux
+      router.push("/start-consultation") // Rediriger vers la page de connexion/consultation
+      router.refresh() // Forcer un rafraîchissement pour que le serveur re-évalue l'état
+    }
+  }
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
@@ -222,13 +239,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                       Paramètres
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={async () => {
-                        await supabase.auth.signOut()
-                        // Redirect or handle post-logout state
-                        window.location.href = "/start-consultation" // Or your login page
-                      }}
-                    >
+                    <DropdownMenuItem onClick={handleLogout}>
                       <LogOut size={16} className="mr-2" />
                       Déconnexion
                     </DropdownMenuItem>
