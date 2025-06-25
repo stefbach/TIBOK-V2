@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useMemo, useCallback } from "react"
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   HeartPulse,
@@ -24,150 +24,244 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import Link from "next/link"
 
-// Import conditionnel et sécurisé
-let supabase: any = null
-let useLanguageHook: any = () => ({ language: "fr" })
-let translationsData: any = {}
-
-try {
-  const { getSupabaseBrowserClient } = require("@/lib/supabase/client")
-  supabase = getSupabaseBrowserClient()
-} catch (error) {
-  console.warn("Supabase non disponible:", error)
-}
-
-try {
-  const langContext = require("@/contexts/language-context")
-  const transData = require("@/lib/translations")
-  useLanguageHook = langContext.useLanguage
-  translationsData = transData.translations
-} catch (error) {
-  console.warn("Contexte de langue non disponible:", error)
-}
-
 // Configuration statique
 const STEPS = [
   { id: 1, label: "Authentification" },
   { id: 2, label: "Tarification" },
   { id: 3, label: "Informations" },
   { id: 4, label: "Paiement" },
+] as const
+
+// Types
+interface UserProfile {
+  id: string
+  email: string
+  profile_completed?: boolean
+}
+
+interface PricingOption {
+  id: string
+  title: string
+  price: string
+  desc: string
+  features: string[]
+  isPopular?: boolean
+}
+
+// Configuration des prix - maintenant statique pour éviter les re-calculs
+const PRICING_OPTIONS: PricingOption[] = [
+  {
+    id: "payperuse-local",
+    title: "À l'acte - Résident",
+    price: "1000 MUR",
+    desc: "Paiement à l'utilisation pour résidents Maurice",
+    features: [
+      "Consultation par session",
+      "Livraison payante", 
+      "Prescription numérique"
+    ],
+  },
+  {
+    id: "payperuse-tourist", 
+    title: "À l'acte - Touriste",
+    price: "35 €",
+    desc: "Paiement à l'utilisation pour touristes",
+    features: [
+      "Consultation par session",
+      "Livraison payante",
+      "Prescription numérique"
+    ],
+  },
+  {
+    id: "solo",
+    title: "Pack Solo",
+    price: "800 MUR/mois",
+    desc: "Plan individuel complet",
+    features: [
+      "1 consultation comprise",
+      "Livraison gratuite",
+      "Prescription numérique"
+    ],
+  },
+  {
+    id: "family",
+    title: "Pack Famille", 
+    price: "2800 MUR/mois",
+    desc: "Plan familial pour 4 personnes maximum",
+    features: [
+      "Jusqu'à 4 personnes",
+      "4 consultations par mois",
+      "Livraison gratuite",
+      "Accès prioritaire"
+    ],
+    isPopular: true,
+  },
 ]
 
-// Fonction pour créer les options de tarification - stable
-const createPricingOptions = (translations: any) => {
-  const t = translations || {}
-  return [
-    {
-      id: "payperuse-local",
-      title: t.pricingPayPerUseLocalTitle || "Pay per use - Résident",
-      price: t.pricingPayPerUseLocalPrice || "25€",
-      desc: t.pricingPayPerUseLocalDesc || "Paiement à l'utilisation pour résidents locaux",
-      features: [
-        t.pricingPayPerUseLocalFeat1 || "Consultation immédiate",
-        t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé",
-        t.pricingPayPerUseLocalFeat3 || "Support client local",
-      ],
-    },
-    {
-      id: "payperuse-tourist",
-      title: t.pricingPayPerUseTouristTitle || "Pay per use - Touriste",
-      price: t.pricingPayPerUseTouristPrice || "35€",
-      desc: t.pricingPayPerUseTouristDesc || "Paiement à l'utilisation pour touristes",
-      features: [
-        t.pricingPayPerUseTouristFeat1 || "Consultation immédiate",
-        t.pricingPayPerUseTouristFeat2 || "Rapport médical multilingue",
-        t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7",
-      ],
-    },
-    {
-      id: "solo",
-      title: t.pricingSoloPackTitle || "Pack Solo",
-      price: t.pricingSoloPackPrice || "49€/mois",
-      desc: t.pricingSoloPackDesc || "Plan individuel complet",
-      features: [
-        t.pricingSoloPackFeat1 || "Consultations illimitées",
-        t.pricingSoloPackFeat2 || "Suivi médical personnalisé",
-        t.pricingSoloPackFeat3 || "Téléconsultations incluses",
-      ],
-    },
-    {
-      id: "family",
-      title: t.pricingFamilyPackTitle || "Pack Famille",
-      price: t.pricingFamilyPackPrice || "149€/mois",
-      desc: t.pricingFamilyPackDesc || "Plan familial pour 4 personnes maximum",
-      features: [
-        t.pricingFamilyPackFeat1 || "Consultations illimitées pour la famille",
-        t.pricingFamilyPackFeat2 || "Suivi médical complet",
-        t.pricingFamilyPackFeat3 || "Urgences médicales 24/7",
-        t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison",
-      ],
-      isPopular: true,
-    },
-  ]
+// Hooks personnalisés pour séparer la logique
+function useSupabaseClient() {
+  const [client, setClient] = useState<any>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    const initSupabase = async () => {
+      try {
+        // Vérification des variables d'environnement
+        if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+          throw new Error("Variables d'environnement Supabase manquantes")
+        }
+
+        const { getSupabaseBrowserClient } = await import("@/lib/supabase/client")
+        const supabaseClient = getSupabaseBrowserClient()
+        
+        if (!supabaseClient) {
+          throw new Error("Impossible d'initialiser le client Supabase")
+        }
+
+        setClient(supabaseClient)
+        setError(null)
+      } catch (err: any) {
+        console.error("[SUPABASE] Erreur d'initialisation:", err)
+        setError(err.message)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    initSupabase()
+  }, [])
+
+  return { client, error, isLoading }
 }
 
-interface AppState {
-  // Status
-  isLoading: boolean
-  error: string | null
-  currentStep: number
-  isInitialized: boolean
+function useAuth(supabaseClient: any) {
+  const [user, setUser] = useState<UserProfile | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  // Auth
-  user: any
-  authView: "login" | "signup"
+  const checkUserSession = useCallback(async () => {
+    if (!supabaseClient) return null
 
-  // Forms
-  loginEmail: string
-  loginPassword: string
-  signupEmail: string
-  signupPassword: string
+    try {
+      const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession()
+      
+      if (sessionError) {
+        throw sessionError
+      }
 
-  // Patient
-  firstName: string
-  lastName: string
-  phone: string
-  birthDate: string
-  gender: string
-  address: string
-  city: string
-  country: string
-  emergencyName: string
-  emergencyPhone: string
+      if (session?.user) {
+        // Vérifier le profil utilisateur
+        const { data: profile, error: profileError } = await supabaseClient
+          .from("profiles")
+          .select("profile_completed")
+          .eq("id", session.user.id)
+          .single()
 
-  // Pricing
-  selectedPlan: string | null
+        if (profileError && profileError.code !== "PGRST116") {
+          throw profileError
+        }
+
+        const userProfile: UserProfile = {
+          id: session.user.id,
+          email: session.user.email || "",
+          profile_completed: profile?.profile_completed || false
+        }
+
+        setUser(userProfile)
+        return userProfile
+      }
+
+      setUser(null)
+      return null
+    } catch (err: any) {
+      console.error("[AUTH] Erreur vérification session:", err)
+      setError(err.message)
+      return null
+    }
+  }, [supabaseClient])
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (!supabaseClient) {
+      throw new Error("Service d'authentification non disponible")
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const { data, error } = await supabaseClient.auth.signInWithPassword({ 
+        email, 
+        password 
+      })
+
+      if (error) throw error
+
+      const userProfile = await checkUserSession()
+      return userProfile
+    } finally {
+      setIsLoading(false)
+    }
+  }, [supabaseClient, checkUserSession])
+
+  const signUp = useCallback(async (email: string, password: string) => {
+    if (!supabaseClient) {
+      throw new Error("Service d'authentification non disponible")
+    }
+
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const { data, error } = await supabaseClient.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
+        },
+      })
+
+      if (error) throw error
+
+      if (data.user && data.session) {
+        const userProfile = await checkUserSession()
+        return userProfile
+      }
+
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [supabaseClient, checkUserSession])
+
+  return {
+    user,
+    isLoading,
+    error,
+    signIn,
+    signUp,
+    checkUserSession,
+    setError
+  }
 }
 
+// Composant principal
 export default function StartConsultationPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { client: supabaseClient, error: supabaseError, isLoading: supabaseLoading } = useSupabaseClient()
+  const { user, isLoading: authLoading, error: authError, signIn, signUp, checkUserSession, setError: setAuthError } = useAuth(supabaseClient)
 
-  // Hook de langue avec fallback stable
-  const { language } = useLanguageHook()
-
-  // Traductions memoized pour éviter les re-calculs
-  const translations = useMemo(() => {
-    return translationsData[language] || {}
-  }, [language])
-
-  // Options de tarification memoized
-  const pricingOptions = useMemo(() => {
-    return createPricingOptions(translations)
-  }, [translations])
-
-  // État centralisé
-  const [state, setState] = useState<AppState>({
-    isLoading: false,
-    error: null,
-    currentStep: 1,
-    isInitialized: false,
-    user: null,
-    authView: "login",
-    loginEmail: "",
-    loginPassword: "",
-    signupEmail: "",
-    signupPassword: "",
+  // États locaux séparés pour éviter les re-rendus excessifs
+  const [currentStep, setCurrentStep] = useState(1)
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null)
+  const [authView, setAuthView] = useState<"login" | "signup">("login")
+  const [isInitialized, setIsInitialized] = useState(false)
+  
+  // États des formulaires
+  const [loginForm, setLoginForm] = useState({ email: "", password: "" })
+  const [signupForm, setSignupForm] = useState({ email: "", password: "" })
+  const [patientForm, setPatientForm] = useState({
     firstName: "",
     lastName: "",
     phone: "",
@@ -178,365 +272,217 @@ export default function StartConsultationPage() {
     country: "",
     emergencyName: "",
     emergencyPhone: "",
-    selectedPlan: null,
   })
 
-  // Helper pour mettre à jour l'état - useCallback pour stabilité
-  const updateState = useCallback((updates: Partial<AppState>) => {
-    setState((prev) => ({ ...prev, ...updates }))
-  }, [])
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [globalError, setGlobalError] = useState<string | null>(null)
 
-  // Initialisation - Effect séparé et stable
+  // Ref pour éviter les effets multiples
+  const initRef = useRef(false)
+
+  // Initialisation de la page
   useEffect(() => {
-    let mounted = true
-    console.log(
-      "[DEBUG_SPIN] StartConsultationPage useEffect initializePage triggered. Current step:",
-      state.currentStep,
-      "User:",
-      state.user?.id,
-    )
+    if (initRef.current || supabaseLoading) return
+    if (supabaseError) {
+      setIsInitialized(true)
+      return
+    }
+    if (!supabaseClient) return
+
+    initRef.current = true
 
     const initializePage = async () => {
-      console.log("[DEBUG_SPIN] initializePage: Démarrage")
-      // Vérifier le plan initial depuis l'URL
-      const initialPlan = searchParams.get("plan")
-      if (initialPlan && pricingOptions.some((p) => p.id === initialPlan)) {
-        if (mounted) {
-          console.log("[DEBUG_SPIN] initializePage: Plan initial trouvé dans l'URL:", initialPlan)
-          updateState({ selectedPlan: initialPlan })
-        }
-      }
+      try {
+        // Vérifier les paramètres URL
+        const stepParam = searchParams.get("step")
+        const planParam = searchParams.get("plan")
 
-      if (supabase) {
-        console.log("[DEBUG_SPIN] initializePage: Supabase disponible, vérification de la session.")
-        try {
-          const {
-            data: { session },
-            error: sessionError,
-          } = await supabase.auth.getSession()
-
-          if (sessionError && mounted) {
-            console.error("[DEBUG_SPIN] initializePage: Erreur getSession:", sessionError.message)
-            updateState({ error: `Erreur de session: ${sessionError.message}`, currentStep: 1, isInitialized: true })
-            return
+        if (stepParam) {
+          const step = parseInt(stepParam)
+          if (step >= 1 && step <= 4) {
+            setCurrentStep(step)
           }
-
-          if (mounted && session?.user) {
-            updateState({ user: session.user }) // Update user state first
-            console.log("[DEBUG_SPIN] initializePage: Session utilisateur trouvée:", session.user.id)
-
-            // Check for patient data
-            const { data: patientData, error: patientError } = await supabase
-              .from("patients")
-              .select("user_id, first_name, last_name")
-              .eq("user_id", session.user.id)
-              .maybeSingle()
-
-            if (patientError && mounted) {
-              console.error("[DEBUG_SPIN] initializePage: Erreur récupération patient:", patientError.message)
-              updateState({
-                error: `Erreur données patient: ${patientError.message}`,
-                currentStep: 2, // Proceed to plan selection if patient data fetch fails
-                isInitialized: true,
-              })
-              return
-            }
-
-            console.log("[DEBUG_SPIN] initializePage: Données patient récupérées:", patientData)
-
-            if (patientData && patientData.first_name && patientData.last_name && mounted) {
-              console.log(
-                "[DEBUG_SPIN] initializePage: Patient existant avec profil complet. Redirection vers /dashboard.",
-              )
-              router.push("/dashboard")
-              return // Important: return to prevent further state updates on this page
-            } else if (mounted) {
-              console.log(
-                "[DEBUG_SPIN] initializePage: Patient n'existe pas ou profil incomplet. Aller à l'étape 2 (Tarification).",
-              )
-              updateState({ currentStep: 2, isInitialized: true })
-            }
-          } else if (mounted) {
-            console.log(
-              "[DEBUG_SPIN] initializePage: Pas de session utilisateur. Aller à l'étape 1 (Authentification).",
-            )
-            updateState({ currentStep: 1, isInitialized: true })
-          }
-        } catch (error: any) {
-          console.warn("[DEBUG_SPIN] initializePage: Erreur globale dans initializePage:", error.message)
-          if (mounted)
-            updateState({ currentStep: 1, isInitialized: true, error: "Erreur d'initialisation de la page." })
         }
-      } else {
-        console.log(
-          "[DEBUG_SPIN] initializePage: Supabase non disponible. Aller à l'étape 1 (Authentification), mode démo possible.",
-        )
-        if (mounted) updateState({ currentStep: 1, isInitialized: true })
+
+        if (planParam && PRICING_OPTIONS.some(p => p.id === planParam)) {
+          setSelectedPlan(planParam)
+        }
+
+        // Vérifier la session utilisateur
+        const userProfile = await checkUserSession()
+        
+        if (userProfile?.profile_completed) {
+          router.push("/dashboard")
+          return
+        }
+
+        if (userProfile && !stepParam) {
+          setCurrentStep(2) // Aller directement à la tarification si connecté
+        }
+
+        setIsInitialized(true)
+      } catch (error) {
+        console.error("[INIT] Erreur:", error)
+        setGlobalError("Erreur d'initialisation")
+        setIsInitialized(true)
       }
     }
 
-    // Only run initializePage if not already initialized or if user state changes (e.g. after login)
-    // This helps prevent re-running complex logic if other minor state changes occur.
-    if (!state.isInitialized || (state.isInitialized && !state.user && supabase)) {
-      initializePage()
-    }
+    initializePage()
+  }, [supabaseClient, supabaseError, supabaseLoading, searchParams, checkUserSession, router])
 
-    return () => {
-      console.log("[DEBUG_SPIN] StartConsultationPage useEffect cleanup")
-      mounted = false
-    }
-  }, [searchParams, router, updateState, pricingOptions, state.isInitialized, state.user]) // Added state.isInitialized and state.user
+  // Gestion de l'authentification
+  const handleAuth = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault()
+    setGlobalError(null)
+    setAuthError(null)
 
-  // Authentification
-  const handleAuth = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault()
-      console.log("[DEBUG_SPIN] handleAuth: Démarrage, vue:", state.authView)
+    try {
+      const email = authView === "login" ? loginForm.email : signupForm.email
+      const password = authView === "login" ? loginForm.password : signupForm.password
 
-      if (!supabase) {
-        updateState({ error: "Service d'authentification non disponible" })
+      if (!email || !password) {
+        setGlobalError("Veuillez remplir tous les champs")
         return
       }
 
-      updateState({ isLoading: true, error: null })
+      let userProfile: any = null
 
-      try {
-        const email = state.authView === "signup" ? state.signupEmail : state.loginEmail
-        const password = state.authView === "signup" ? state.signupPassword : state.loginPassword
-
-        if (state.authView === "signup") {
-          console.log("[DEBUG_SPIN] handleAuth: Tentative d'inscription pour:", email)
-          const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
-            },
-          })
-
-          if (error) {
-            console.error("[DEBUG_SPIN] handleAuth: Erreur d'inscription:", error.message)
-            updateState({
-              error: error.message.includes("User already registered")
-                ? "Un compte avec cet email existe déjà."
-                : `Erreur d'inscription: ${error.message}`,
-            })
-          } else if (data.user && !data.session) {
-            console.log(
-              "[DEBUG_SPIN] handleAuth: Inscription réussie, en attente de confirmation email pour:",
-              data.user.id,
-            )
-            updateState({
-              error: null,
-              // currentStep: 1, // Keep on step 1, show confirmation message
-            })
-            alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
-          } else if (data.user && data.session) {
-            // This case might happen if email confirmation is off or auto-confirmed
-            console.log("[DEBUG_SPIN] handleAuth: Inscription réussie et session créée (auto-confirm?):", data.user.id)
-            updateState({ user: data.user, error: null }) // Update user state
-            // Proactively check patient data and redirect if possible
-            const { data: patientData } = await supabase
-              .from("patients")
-              .select("user_id, first_name, last_name")
-              .eq("user_id", data.user.id)
-              .maybeSingle()
-            if (patientData && patientData.first_name && patientData.last_name) {
-              console.log(
-                "[DEBUG_SPIN] handleAuth (signup auto-confirm): Patient existant avec profil complet. Redirection vers /dashboard.",
-              )
-              router.push("/dashboard")
-              return
-            } else {
-              console.log(
-                "[DEBUG_SPIN] handleAuth (signup auto-confirm): Patient n'existe pas ou profil incomplet. Aller à l'étape 2.",
-              )
-              updateState({ currentStep: 2 })
-            }
-          }
-        } else {
-          // Login view
-          console.log("[DEBUG_SPIN] handleAuth: Tentative de connexion pour:", email)
-          const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-
-          if (error) {
-            console.error("[DEBUG_SPIN] handleAuth: Erreur de connexion:", error.message)
-            updateState({
-              error: error.message.includes("Invalid login credentials")
-                ? "Email ou mot de passe incorrect."
-                : `Erreur de connexion: ${error.message}`,
-            })
-          } else if (data.user) {
-            console.log("[DEBUG_SPIN] handleAuth: Connexion réussie pour:", data.user.id)
-            updateState({ user: data.user, error: null }) // Update user state
-
-            // Proactively check patient data and redirect if possible
-            const { data: patientData, error: patientError } = await supabase
-              .from("patients")
-              .select("user_id, first_name, last_name")
-              .eq("user_id", data.user.id)
-              .maybeSingle()
-
-            if (patientError) {
-              console.error(
-                "[DEBUG_SPIN] handleAuth (login): Erreur récupération patient post-login:",
-                patientError.message,
-              )
-              updateState({ currentStep: 2 }) // Proceed to plan selection
-              return
-            }
-
-            if (patientData && patientData.first_name && patientData.last_name) {
-              console.log(
-                "[DEBUG_SPIN] handleAuth (login): Patient existant avec profil complet. Redirection vers /dashboard.",
-              )
-              router.push("/dashboard")
-              return // Important: return to prevent further state updates on this page
-            } else {
-              console.log(
-                "[DEBUG_SPIN] handleAuth (login): Patient n'existe pas ou profil incomplet. Aller à l'étape 2.",
-              )
-              updateState({ currentStep: 2 })
-            }
-          }
+      if (authView === "login") {
+        userProfile = await signIn(email, password)
+      } else {
+        userProfile = await signUp(email, password)
+        if (!userProfile) {
+          alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
+          return
         }
-      } catch (error: any) {
-        console.error("[DEBUG_SPIN] handleAuth: Erreur globale:", error.message)
-        updateState({ error: "Erreur d'authentification. Vérifiez votre connexion internet." })
-      } finally {
-        updateState({ isLoading: false })
       }
-    },
-    [
-      state.authView,
-      state.signupEmail,
-      state.loginEmail,
-      state.signupPassword,
-      state.loginPassword,
-      updateState,
-      router,
-    ],
-  )
 
-  // Navigation entre étapes
+      if (userProfile?.profile_completed) {
+        router.push("/dashboard")
+      } else {
+        setCurrentStep(2)
+      }
+    } catch (error: any) {
+      console.error("[AUTH] Erreur:", error)
+      setGlobalError(error.message || "Erreur d'authentification")
+    }
+  }, [authView, loginForm, signupForm, signIn, signUp, router, setAuthError])
+
+  // Navigation entre étapes avec validation
   const handleNextStep = useCallback(async () => {
-    updateState({ error: null })
+    setGlobalError(null)
 
-    switch (state.currentStep) {
+    switch (currentStep) {
       case 1:
-        updateState({ currentStep: 2 })
+        if (!user) {
+          setGlobalError("Veuillez vous connecter d'abord")
+          return
+        }
+        setCurrentStep(2)
         break
 
       case 2:
-        if (!state.selectedPlan) {
-          updateState({ error: "Veuillez sélectionner un plan tarifaire." })
+        if (!selectedPlan) {
+          setGlobalError("Veuillez sélectionner un plan tarifaire")
           return
         }
-        updateState({ currentStep: 3 })
+        setCurrentStep(3)
         break
 
       case 3:
-        if (!state.firstName || !state.lastName) {
-          updateState({ error: "Veuillez remplir au moins le prénom et le nom." })
+        if (!patientForm.firstName || !patientForm.lastName) {
+          setGlobalError("Veuillez remplir au moins le prénom et le nom")
           return
         }
 
-        // Sauvegarder les données patient si Supabase disponible
-        if (supabase && state.user) {
-          updateState({ isLoading: true })
-
-          try {
-            const patientData = {
-              user_id: state.user.id,
-              first_name: state.firstName,
-              last_name: state.lastName,
-              date_of_birth: state.birthDate || null,
-              gender: state.gender || null,
-              phone_number: state.phone || null,
-              email: state.user.email,
-              address: state.address || null,
-              city: state.city || null,
-              country: state.country || null,
-              emergency_contact_name: state.emergencyName || null,
-              emergency_contact_phone: state.emergencyPhone || null,
-            }
-
-            const { error } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-
-            if (error) {
-              updateState({ error: `Erreur sauvegarde: ${error.message}` })
-              return
-            }
-
-            // Mettre à jour le profil
-            const fullName = `${state.firstName} ${state.lastName}`.trim()
-            await supabase.from("profiles").upsert({ id: state.user.id, full_name: fullName }, { onConflict: "id" })
-          } catch (error: any) {
-            updateState({ error: `Erreur: ${error.message}` })
-            return
-          } finally {
-            updateState({ isLoading: false })
-          }
+        if (!supabaseClient || !user) {
+          setGlobalError("Service non disponible")
+          return
         }
 
-        updateState({ currentStep: 4 })
+        setIsSubmitting(true)
+
+        try {
+          // Sauvegarder les données patient
+          const { error: patientError } = await supabaseClient
+            .from("patients")
+            .upsert({
+              user_id: user.id,
+              first_name: patientForm.firstName,
+              last_name: patientForm.lastName,
+              date_of_birth: patientForm.birthDate || null,
+              gender: patientForm.gender || null,
+              phone_number: patientForm.phone || null,
+              email: user.email,
+              address: patientForm.address || null,
+              city: patientForm.city || null,
+              country: patientForm.country || null,
+              emergency_contact_name: patientForm.emergencyName || null,
+              emergency_contact_phone: patientForm.emergencyPhone || null,
+            }, { onConflict: "user_id" })
+
+          if (patientError) throw patientError
+
+          // Marquer le profil comme complet
+          const { error: profileError } = await supabaseClient
+            .from("profiles")
+            .upsert({
+              id: user.id,
+              full_name: `${patientForm.firstName} ${patientForm.lastName}`.trim(),
+              profile_completed: true,
+            }, { onConflict: "id" })
+
+          if (profileError) throw profileError
+
+          setCurrentStep(4)
+        } catch (error: any) {
+          console.error("[PATIENT] Erreur sauvegarde:", error)
+          setGlobalError(`Erreur de sauvegarde: ${error.message}`)
+        } finally {
+          setIsSubmitting(false)
+        }
         break
 
       case 4:
-        updateState({ currentStep: 5 })
+        // TODO: Intégrer le vrai système de paiement
+        // Pour l'instant, simuler le succès
+        setCurrentStep(5)
         break
     }
-  }, [
-    state.currentStep,
-    state.selectedPlan,
-    state.firstName,
-    state.lastName,
-    state.user,
-    state.birthDate,
-    state.gender,
-    state.phone,
-    state.address,
-    state.city,
-    state.country,
-    state.emergencyName,
-    state.emergencyPhone,
-    updateState,
-  ])
+  }, [currentStep, user, selectedPlan, patientForm, supabaseClient])
 
-  // Handlers pour les formulaires
-  const handleTabChange = useCallback(
-    (value: string) => {
-      updateState({ authView: value as "login" | "signup", error: null })
-    },
-    [updateState],
-  )
-
-  const handleSelectPricing = useCallback(
-    (planId: string) => {
-      updateState({ selectedPlan: planId })
-    },
-    [updateState],
-  )
-
-  const handleDemoMode = useCallback(() => {
-    updateState({
-      currentStep: 2,
-      user: { email: "demo@tibok.com" },
-      error: null,
-    })
-  }, [updateState])
-
-  // Gestion des erreurs de rendu
-  if (!state.isInitialized) {
+  // Affichage conditionnel pour l'état de chargement
+  if (supabaseLoading || !isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <Loader2 className="animate-spin text-blue-600 h-12 w-12 mx-auto mb-4" />
-          <p className="text-gray-600">Chargement...</p>
+          <p className="text-gray-600">Initialisation...</p>
         </div>
       </div>
     )
   }
+
+  // Affichage de l'erreur Supabase critique
+  if (supabaseError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-red-50">
+        <div className="max-w-2xl mx-auto p-8 bg-white shadow-lg rounded-lg border-2 border-red-500">
+          <div className="text-center">
+            <AlertTriangle className="text-red-600 h-12 w-12 mx-auto mb-4" />
+            <h1 className="text-2xl font-bold text-red-800">Erreur de Configuration</h1>
+            <p className="mt-2 text-gray-700">Le service n'est pas disponible.</p>
+            <div className="mt-4 p-4 bg-red-100 text-red-900 text-left rounded-md font-mono text-sm">
+              {supabaseError}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const currentError = globalError || authError
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -561,7 +507,7 @@ export default function StartConsultationPage() {
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Indicateur d'étapes */}
-        {state.currentStep <= 4 && (
+        {currentStep <= 4 && (
           <div className="mb-8">
             <div className="flex items-center justify-center space-x-2 sm:space-x-4">
               {STEPS.map((step, index) => (
@@ -569,14 +515,14 @@ export default function StartConsultationPage() {
                   <div className="flex flex-col sm:flex-row items-center text-center sm:text-left">
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-white ${
-                        state.currentStep >= step.id ? "bg-blue-700" : "bg-gray-400"
+                        currentStep >= step.id ? "bg-blue-700" : "bg-gray-400"
                       }`}
                     >
-                      {state.currentStep > step.id ? <Check size={18} /> : step.id}
+                      {currentStep > step.id ? <Check size={18} /> : step.id}
                     </div>
                     <span
                       className={`ml-0 sm:ml-2 mt-1 sm:mt-0 text-xs sm:text-sm font-medium ${
-                        state.currentStep >= step.id ? "text-blue-700" : "text-gray-500"
+                        currentStep >= step.id ? "text-blue-700" : "text-gray-500"
                       }`}
                     >
                       {step.label}
@@ -592,25 +538,31 @@ export default function StartConsultationPage() {
         )}
 
         {/* Affichage des erreurs */}
-        {state.error && (
+        {currentError && (
           <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
             <AlertTriangle className="inline-block mr-2 h-5 w-5" />
-            <span className="block sm:inline">{state.error}</span>
-            <button className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => updateState({ error: null })}>
+            <span className="block sm:inline">{currentError}</span>
+            <button 
+              className="absolute top-0 bottom-0 right-0 px-4 py-3" 
+              onClick={() => {
+                setGlobalError(null)
+                setAuthError(null)
+              }}
+            >
               <span className="sr-only">Fermer</span>×
             </button>
           </div>
         )}
 
         {/* Étape 1: Authentification */}
-        {state.currentStep === 1 && (
+        {currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Authentification</CardTitle>
               <CardDescription>Connectez-vous ou créez un compte pour continuer</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md mx-auto">
-              <Tabs value={state.authView} onValueChange={handleTabChange} className="w-full">
+              <Tabs value={authView} onValueChange={(value) => setAuthView(value as "login" | "signup")} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="login">Connexion</TabsTrigger>
                   <TabsTrigger value="signup">Inscription</TabsTrigger>
@@ -623,8 +575,8 @@ export default function StartConsultationPage() {
                       <Input
                         id="login-email"
                         type="email"
-                        value={state.loginEmail}
-                        onChange={(e) => updateState({ loginEmail: e.target.value })}
+                        value={loginForm.email}
+                        onChange={(e) => setLoginForm(prev => ({ ...prev, email: e.target.value }))}
                         placeholder="email@example.com"
                         required
                       />
@@ -634,14 +586,14 @@ export default function StartConsultationPage() {
                       <Input
                         id="login-password"
                         type="password"
-                        value={state.loginPassword}
-                        onChange={(e) => updateState({ loginPassword: e.target.value })}
+                        value={loginForm.password}
+                        onChange={(e) => setLoginForm(prev => ({ ...prev, password: e.target.value }))}
                         placeholder="••••••••"
                         required
                       />
                     </div>
-                    <Button type="submit" className="w-full py-3" disabled={state.isLoading}>
-                      {state.isLoading ? (
+                    <Button type="submit" className="w-full py-3" disabled={authLoading}>
+                      {authLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
                           Connexion...
@@ -660,8 +612,8 @@ export default function StartConsultationPage() {
                       <Input
                         id="signup-email"
                         type="email"
-                        value={state.signupEmail}
-                        onChange={(e) => updateState({ signupEmail: e.target.value })}
+                        value={signupForm.email}
+                        onChange={(e) => setSignupForm(prev => ({ ...prev, email: e.target.value }))}
                         placeholder="email@example.com"
                         required
                       />
@@ -671,15 +623,15 @@ export default function StartConsultationPage() {
                       <Input
                         id="signup-password"
                         type="password"
-                        value={state.signupPassword}
-                        onChange={(e) => updateState({ signupPassword: e.target.value })}
+                        value={signupForm.password}
+                        onChange={(e) => setSignupForm(prev => ({ ...prev, password: e.target.value }))}
                         placeholder="••••••••"
                         required
                         minLength={6}
                       />
                     </div>
-                    <Button type="submit" className="w-full py-3" disabled={state.isLoading}>
-                      {state.isLoading ? (
+                    <Button type="submit" className="w-full py-3" disabled={authLoading}>
+                      {authLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
                           Inscription...
@@ -691,49 +643,39 @@ export default function StartConsultationPage() {
                   </form>
                 </TabsContent>
               </Tabs>
-
-              {/* Mode dégradé si pas de Supabase */}
-              {!supabase && (
-                <div className="mt-4 text-center">
-                  <Button onClick={handleDemoMode} variant="outline" className="w-full">
-                    Continuer en mode démo
-                  </Button>
-                  <p className="text-xs text-gray-500 mt-2">Mode démonstration - Aucune donnée ne sera sauvegardée</p>
-                </div>
-              )}
             </CardContent>
           </Card>
         )}
 
         {/* Étape 2: Sélection du tarif */}
-        {state.currentStep === 2 && (
+        {currentStep === 2 && (
           <Card>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Sélection du tarif</CardTitle>
               <CardDescription>Choisissez le plan qui vous convient</CardDescription>
-              {state.user?.email && (
+              {user?.email && (
                 <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
                   <p className="text-sm text-green-700 flex items-center">
                     <Check className="mr-2 h-4 w-4" />
-                    Connecté en tant que <strong className="ml-1">{state.user.email}</strong>
+                    Connecté en tant que <strong className="ml-1">{user.email}</strong>
                   </p>
                 </div>
               )}
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {pricingOptions.map((option) => (
+                {PRICING_OPTIONS.map((option) => (
                   <div
                     key={option.id}
                     className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${
-                      state.selectedPlan === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"
+                      selectedPlan === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"
                     }`}
-                    onClick={() => handleSelectPricing(option.id)}
+                    onClick={() => setSelectedPlan(option.id)}
                   >
                     <div className="text-center">
                       {option.isPopular && (
                         <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full mb-2 inline-block">
-                          {translations.pricingPopularBadge || "Populaire"}
+                          Populaire
                         </span>
                       )}
                       <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">{option.title}</h3>
@@ -752,67 +694,11 @@ export default function StartConsultationPage() {
                 ))}
               </div>
 
-              {/* Section Second Avis Médical */}
-              <div className="border-t pt-8">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
-                  {translations.secondOpinionServiceTitle || "Service de second avis médical"}
-                </h3>
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
-                  <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
-                    <div className="text-center sm:text-left mb-2 sm:mb-0">
-                      <h4 className="font-semibold text-gray-900">
-                        {translations.secondOpinionSubtitle || "Second avis médical"}
-                      </h4>
-                      <p className="text-sm text-gray-600">
-                        {translations.secondOpinionDesc || "Obtenez un second avis d'expert"}
-                      </p>
-                    </div>
-                    <div className="text-center sm:text-right">
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600">
-                        {translations.secondOpinionPriceDetails || "Sur devis"}
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        {translations.secondOpinionPriceCondition || "Tarif personnalisé"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid md:grid-cols-3 gap-4 mt-4">
-                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-                      <Search className="text-blue-600 text-xl mb-2 mx-auto" />
-                      <h5 className="font-medium text-gray-900 text-sm">
-                        {translations.secondOpinionSearchSpecialist || "Recherche de spécialiste"}
-                      </h5>
-                      <p className="text-xs text-gray-600">
-                        {translations.secondOpinionSearchSpecialistDesc || "Accès à notre réseau d'experts"}
-                      </p>
-                    </div>
-                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-                      <UserMdIcon className="text-blue-600 text-xl mb-2 mx-auto" />
-                      <h5 className="font-medium text-gray-900 text-sm">
-                        {translations.secondOpinionExpertConsultation || "Consultation d'expert"}
-                      </h5>
-                      <p className="text-xs text-gray-600">
-                        {translations.secondOpinionExpertConsultationDesc || "Avis médical spécialisé"}
-                      </p>
-                    </div>
-                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
-                      <FileMedical className="text-blue-600 text-xl mb-2 mx-auto" />
-                      <h5 className="font-medium text-gray-900 text-sm">
-                        {translations.secondOpinionDetailedReport || "Rapport détaillé"}
-                      </h5>
-                      <p className="text-xs text-gray-600">
-                        {translations.secondOpinionDetailedReportDesc || "Analyse complète et recommandations"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <div className="mt-8 flex justify-center">
                 <Button
                   onClick={handleNextStep}
                   className="px-8 py-3 text-base"
-                  disabled={state.isLoading || !state.selectedPlan}
+                  disabled={!selectedPlan}
                 >
                   Continuer
                 </Button>
@@ -822,7 +708,7 @@ export default function StartConsultationPage() {
         )}
 
         {/* Étape 3: Informations patient */}
-        {state.currentStep === 3 && (
+        {currentStep === 3 && (
           <Card>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Informations patient</CardTitle>
@@ -836,8 +722,8 @@ export default function StartConsultationPage() {
                     <Input
                       id="firstName"
                       placeholder="Prénom"
-                      value={state.firstName}
-                      onChange={(e) => updateState({ firstName: e.target.value })}
+                      value={patientForm.firstName}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, firstName: e.target.value }))}
                       required
                     />
                   </div>
@@ -846,8 +732,8 @@ export default function StartConsultationPage() {
                     <Input
                       id="lastName"
                       placeholder="Nom"
-                      value={state.lastName}
-                      onChange={(e) => updateState({ lastName: e.target.value })}
+                      value={patientForm.lastName}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, lastName: e.target.value }))}
                       required
                     />
                   </div>
@@ -859,8 +745,7 @@ export default function StartConsultationPage() {
                     <Input
                       id="email-patient"
                       type="email"
-                      placeholder="email@example.com"
-                      value={state.user?.email || ""}
+                      value={user?.email || ""}
                       readOnly
                       disabled
                     />
@@ -871,8 +756,8 @@ export default function StartConsultationPage() {
                       id="phone"
                       type="tel"
                       placeholder="+230 5xxx xxxx"
-                      value={state.phone}
-                      onChange={(e) => updateState({ phone: e.target.value })}
+                      value={patientForm.phone}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, phone: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -883,13 +768,16 @@ export default function StartConsultationPage() {
                     <Input
                       id="birthDate"
                       type="date"
-                      value={state.birthDate}
-                      onChange={(e) => updateState({ birthDate: e.target.value })}
+                      value={patientForm.birthDate}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, birthDate: e.target.value }))}
                     />
                   </div>
                   <div>
                     <Label htmlFor="gender">Sexe</Label>
-                    <Select value={state.gender} onValueChange={(value) => updateState({ gender: value })}>
+                    <Select 
+                      value={patientForm.gender} 
+                      onValueChange={(value) => setPatientForm(prev => ({ ...prev, gender: value }))}
+                    >
                       <SelectTrigger id="gender">
                         <SelectValue placeholder="Sélectionner le sexe" />
                       </SelectTrigger>
@@ -907,8 +795,8 @@ export default function StartConsultationPage() {
                   <Textarea
                     id="address"
                     placeholder="123 Rue Principale"
-                    value={state.address}
-                    onChange={(e) => updateState({ address: e.target.value })}
+                    value={patientForm.address}
+                    onChange={(e) => setPatientForm(prev => ({ ...prev, address: e.target.value }))}
                   />
                 </div>
 
@@ -918,8 +806,8 @@ export default function StartConsultationPage() {
                     <Input
                       id="city"
                       placeholder="Port Louis"
-                      value={state.city}
-                      onChange={(e) => updateState({ city: e.target.value })}
+                      value={patientForm.city}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, city: e.target.value }))}
                     />
                   </div>
                   <div>
@@ -927,8 +815,8 @@ export default function StartConsultationPage() {
                     <Input
                       id="country"
                       placeholder="Maurice"
-                      value={state.country}
-                      onChange={(e) => updateState({ country: e.target.value })}
+                      value={patientForm.country}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, country: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -939,8 +827,8 @@ export default function StartConsultationPage() {
                     <Input
                       id="emergencyName"
                       placeholder="Jean Dupont"
-                      value={state.emergencyName}
-                      onChange={(e) => updateState({ emergencyName: e.target.value })}
+                      value={patientForm.emergencyName}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, emergencyName: e.target.value }))}
                     />
                   </div>
                   <div>
@@ -949,8 +837,8 @@ export default function StartConsultationPage() {
                       id="emergencyPhone"
                       type="tel"
                       placeholder="+230 5xxx xxxx"
-                      value={state.emergencyPhone}
-                      onChange={(e) => updateState({ emergencyPhone: e.target.value })}
+                      value={patientForm.emergencyPhone}
+                      onChange={(e) => setPatientForm(prev => ({ ...prev, emergencyPhone: e.target.value }))}
                     />
                   </div>
                 </div>
@@ -959,9 +847,9 @@ export default function StartConsultationPage() {
                   <Button
                     onClick={handleNextStep}
                     className="px-8 py-3 text-base"
-                    disabled={state.isLoading || !state.firstName || !state.lastName}
+                    disabled={isSubmitting || !patientForm.firstName || !patientForm.lastName}
                   >
-                    {state.isLoading ? <Loader2 className="animate-spin mr-2" /> : null}
+                    {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : null}
                     Continuer
                   </Button>
                 </div>
@@ -971,7 +859,7 @@ export default function StartConsultationPage() {
         )}
 
         {/* Étape 4: Paiement */}
-        {state.currentStep === 4 && (
+        {currentStep === 4 && (
           <Card>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Paiement</CardTitle>
@@ -996,34 +884,13 @@ export default function StartConsultationPage() {
                 </div>
               </div>
 
-              <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
-                <div>
-                  <Label htmlFor="cardNumber">Numéro de carte</Label>
-                  <Input id="cardNumber" placeholder="1234 5678 9012 3456" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label htmlFor="expiryDate">Expiration</Label>
-                    <Input id="expiryDate" placeholder="MM/AA" />
-                  </div>
-                  <div>
-                    <Label htmlFor="cvv">CVV</Label>
-                    <Input id="cvv" placeholder="123" />
-                  </div>
-                </div>
-                <div>
-                  <Label htmlFor="cardHolderName">Nom du titulaire</Label>
-                  <Input id="cardHolderName" placeholder="Nom du titulaire" />
-                </div>
-              </form>
-
-              {state.selectedPlan && (
+              {selectedPlan && (
                 <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-900">Plan sélectionné</span>
                     <span className="font-bold text-blue-600">
-                      {pricingOptions.find((p) => p.id === state.selectedPlan)?.title} -{" "}
-                      {pricingOptions.find((p) => p.id === state.selectedPlan)?.price}
+                      {PRICING_OPTIONS.find((p) => p.id === selectedPlan)?.title} -{" "}
+                      {PRICING_OPTIONS.find((p) => p.id === selectedPlan)?.price}
                     </span>
                   </div>
                 </div>
@@ -1031,7 +898,6 @@ export default function StartConsultationPage() {
 
               <div className="mt-8 space-y-4">
                 <Button onClick={handleNextStep} className="w-full px-6 py-3 text-base font-medium">
-                  {state.isLoading ? <Loader2 className="animate-spin mr-2" /> : null}
                   Finaliser l'inscription
                 </Button>
                 <p className="text-xs text-gray-500 text-center flex items-center justify-center">
@@ -1043,7 +909,7 @@ export default function StartConsultationPage() {
         )}
 
         {/* Étape 5: Succès */}
-        {state.currentStep === 5 && (
+        {currentStep === 5 && (
           <Card>
             <CardHeader className="text-center">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -1053,29 +919,6 @@ export default function StartConsultationPage() {
               <CardDescription>Votre compte a été créé avec succès.</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
-                  <Users className="text-blue-600 text-xl mb-2 mx-auto" />
-                  <h3 className="font-medium text-gray-900 text-sm">Salle d'attente</h3>
-                  <p className="text-xs text-gray-600">Accédez à vos consultations</p>
-                </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
-                  <History className="text-blue-600 text-xl mb-2 mx-auto" />
-                  <h3 className="font-medium text-gray-900 text-sm">Historique</h3>
-                  <p className="text-xs text-gray-600">Consultez vos antécédents</p>
-                </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
-                  <UserMdIcon className="text-blue-600 text-xl mb-2 mx-auto" />
-                  <h3 className="font-medium text-gray-900 text-sm">Second avis</h3>
-                  <p className="text-xs text-gray-600">Demandez un avis expert</p>
-                </div>
-                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
-                  <BotIcon className="text-blue-600 text-xl mb-2 mx-auto" />
-                  <h3 className="font-medium text-gray-900 text-sm">TiBot</h3>
-                  <p className="text-xs text-gray-600">Assistant médical IA</p>
-                </div>
-              </div>
-
               <div className="flex justify-center">
                 <Link href="/dashboard" passHref>
                   <Button className="px-8 py-3 text-base font-medium">Aller au tableau de bord</Button>
