@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect } from "react"
+import React, { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
   HeartPulse,
@@ -27,8 +27,8 @@ import Link from "next/link"
 
 // Import conditionnel et sécurisé
 let supabase: any = null
-let useLanguage: any = () => ({ language: 'fr' })
-let translations: any = {}
+let useLanguageHook: any = () => ({ language: 'fr' })
+let translationsData: any = {}
 
 try {
   const { getSupabaseBrowserClient } = require("@/lib/supabase/client")
@@ -38,10 +38,10 @@ try {
 }
 
 try {
-  const { useLanguage: useLanguageHook } = require("@/contexts/language-context")
-  const { translations: translationsData } = require("@/lib/translations")
-  useLanguage = useLanguageHook
-  translations = translationsData
+  const langContext = require("@/contexts/language-context")
+  const transData = require("@/lib/translations")
+  useLanguageHook = langContext.useLanguage
+  translationsData = transData.translations
 } catch (error) {
   console.warn("Contexte de langue non disponible:", error)
 }
@@ -54,72 +54,58 @@ const STEPS = [
   { id: 4, label: "Paiement" },
 ]
 
-// Fonction pour obtenir les vrais tarifs avec les bonnes traductions
-const getPricingOptions = (t: any) => [
-  {
-    id: "payperuse-local",
-    titleKey: "pricingPayPerUseLocalTitle",
-    title: t.pricingPayPerUseLocalTitle || "Pay per use - Résident",
-    price: t.pricingPayPerUseLocalPrice || "25€",
-    descKey: "pricingPayPerUseLocalDesc", 
-    desc: t.pricingPayPerUseLocalDesc || "Paiement à l'utilisation pour résidents locaux",
-    featuresKeys: ["pricingPayPerUseLocalFeat1", "pricingPayPerUseLocalFeat2", "pricingPayPerUseLocalFeat3"],
-    features: [
-      t.pricingPayPerUseLocalFeat1 || "Consultation immédiate",
-      t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé", 
-      t.pricingPayPerUseLocalFeat3 || "Support client local"
-    ],
-  },
-  {
-    id: "payperuse-tourist",
-    titleKey: "pricingPayPerUseTouristTitle",
-    title: t.pricingPayPerUseTouristTitle || "Pay per use - Touriste",
-    price: t.pricingPayPerUseTouristPrice || "35€",
-    descKey: "pricingPayPerUseTouristDesc",
-    desc: t.pricingPayPerUseTouristDesc || "Paiement à l'utilisation pour touristes",
-    featuresKeys: ["pricingPayPerUseTouristFeat1", "pricingPayPerUseTouristFeat2", "pricingPayPerUseTouristFeat3"],
-    features: [
-      t.pricingPayPerUseTouristFeat1 || "Consultation immédiate",
-      t.pricingPayPerUseTouristFeat2 || "Rapport médical multilingue",
-      t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7"
-    ],
-  },
-  {
-    id: "solo",
-    titleKey: "pricingSoloPackTitle", 
-    title: t.pricingSoloPackTitle || "Pack Solo",
-    price: t.pricingSoloPackPrice || "49€/mois",
-    descKey: "pricingSoloPackDesc",
-    desc: t.pricingSoloPackDesc || "Plan individuel complet",
-    featuresKeys: ["pricingSoloPackFeat1", "pricingSoloPackFeat2", "pricingSoloPackFeat3"],
-    features: [
-      t.pricingSoloPackFeat1 || "Consultations illimitées", 
-      t.pricingSoloPackFeat2 || "Suivi médical personnalisé",
-      t.pricingSoloPackFeat3 || "Téléconsultations incluses"
-    ],
-  },
-  {
-    id: "family",
-    titleKey: "pricingFamilyPackTitle",
-    title: t.pricingFamilyPackTitle || "Pack Famille", 
-    price: t.pricingFamilyPackPrice || "149€/mois",
-    descKey: "pricingFamilyPackDesc",
-    desc: t.pricingFamilyPackDesc || "Plan familial pour 4 personnes maximum",
-    featuresKeys: [
-      "pricingFamilyPackFeat1",
-      "pricingFamilyPackFeat2", 
-      "pricingFamilyPackFeat3",
-      "pricingFamilyPackFeat4",
-    ],
-    features: [
-      t.pricingFamilyPackFeat1 || "Consultations illimitées pour la famille",
-      t.pricingFamilyPackFeat2 || "Suivi médical complet", 
-      t.pricingFamilyPackFeat3 || "Urgences médicales 24/7",
-      t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison"
-    ],
-    isPopular: true,
-  },
-]
+// Fonction pour créer les options de tarification - stable
+const createPricingOptions = (translations: any) => {
+  const t = translations || {}
+  return [
+    {
+      id: "payperuse-local",
+      title: t.pricingPayPerUseLocalTitle || "Pay per use - Résident",
+      price: t.pricingPayPerUseLocalPrice || "25€",
+      desc: t.pricingPayPerUseLocalDesc || "Paiement à l'utilisation pour résidents locaux",
+      features: [
+        t.pricingPayPerUseLocalFeat1 || "Consultation immédiate",
+        t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé", 
+        t.pricingPayPerUseLocalFeat3 || "Support client local"
+      ],
+    },
+    {
+      id: "payperuse-tourist",
+      title: t.pricingPayPerUseTouristTitle || "Pay per use - Touriste",
+      price: t.pricingPayPerUseTouristPrice || "35€",
+      desc: t.pricingPayPerUseTouristDesc || "Paiement à l'utilisation pour touristes",
+      features: [
+        t.pricingPayPerUseTouristFeat1 || "Consultation immédiate",
+        t.pricingPayPerUseTouristFeat2 || "Rapport médical multilingue",
+        t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7"
+      ],
+    },
+    {
+      id: "solo",
+      title: t.pricingSoloPackTitle || "Pack Solo",
+      price: t.pricingSoloPackPrice || "49€/mois",
+      desc: t.pricingSoloPackDesc || "Plan individuel complet",
+      features: [
+        t.pricingSoloPackFeat1 || "Consultations illimitées", 
+        t.pricingSoloPackFeat2 || "Suivi médical personnalisé",
+        t.pricingSoloPackFeat3 || "Téléconsultations incluses"
+      ],
+    },
+    {
+      id: "family",
+      title: t.pricingFamilyPackTitle || "Pack Famille", 
+      price: t.pricingFamilyPackPrice || "149€/mois",
+      desc: t.pricingFamilyPackDesc || "Plan familial pour 4 personnes maximum",
+      features: [
+        t.pricingFamilyPackFeat1 || "Consultations illimitées pour la famille",
+        t.pricingFamilyPackFeat2 || "Suivi médical complet", 
+        t.pricingFamilyPackFeat3 || "Urgences médicales 24/7",
+        t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison"
+      ],
+      isPopular: true,
+    },
+  ]
+}
 
 interface AppState {
   // Status
@@ -157,11 +143,25 @@ interface AppState {
 export default function StartConsultationPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { language } = useLanguage()
-  const t = translations[language] || {}
+  
+  // Hook de langue avec fallback stable
+  const { language } = useMemo(() => {
+    try {
+      return useLanguageHook()
+    } catch {
+      return { language: 'fr' }
+    }
+  }, [])
 
-  // Obtenir les options de tarification avec les bonnes traductions
-  const pricingOptions = getPricingOptions(t)
+  // Traductions memoized pour éviter les re-calculs
+  const translations = useMemo(() => {
+    return translationsData[language] || {}
+  }, [language])
+
+  // Options de tarification memoized
+  const pricingOptions = useMemo(() => {
+    return createPricingOptions(translations)
+  }, [translations])
 
   // État centralisé
   const [state, setState] = useState<AppState>({
@@ -188,91 +188,72 @@ export default function StartConsultationPage() {
     selectedPlan: null,
   })
 
-  // Helper pour mettre à jour l'état
-  const updateState = (updates: Partial<AppState>) => {
+  // Helper pour mettre à jour l'état - useCallback pour stabilité
+  const updateState = useCallback((updates: Partial<AppState>) => {
     setState(prev => ({ ...prev, ...updates }))
-  }
+  }, [])
 
-  // Initialisation
+  // Initialisation - Effect séparé et stable
   useEffect(() => {
     let mounted = true
 
-    const initialize = async () => {
-      try {
-        // Vérifier le plan initial depuis l'URL
-        const initialPlan = searchParams.get("plan")
-        if (initialPlan) {
-          const pricingOptions = getPricingOptions(t)
-          if (pricingOptions.some(p => p.id === initialPlan)) {
-            updateState({ selectedPlan: initialPlan })
-          }
-        }
+    const initializePage = async () => {
+      // Vérifier le plan initial depuis l'URL
+      const initialPlan = searchParams.get("plan")
+      if (initialPlan && pricingOptions.some(p => p.id === initialPlan)) {
+        if (mounted) updateState({ selectedPlan: initialPlan })
+      }
 
-        // Vérifier la session si Supabase est disponible
-        if (supabase) {
-          try {
-            const { data: { session }, error } = await supabase.auth.getSession()
+      // Vérifier la session si Supabase est disponible
+      if (supabase) {
+        try {
+          const { data: { session }, error } = await supabase.auth.getSession()
+          
+          if (mounted && session?.user) {
+            // Utilisateur connecté - vérifier s'il a déjà des données patient
+            updateState({ user: session.user })
             
-            if (mounted) {
-              if (session?.user) {
-                // Utilisateur connecté - vérifier s'il a déjà des données patient
-                updateState({ user: session.user })
-                
-                try {
-                  const { data: patientData } = await supabase
-                    .from("patients")
-                    .select("user_id")
-                    .eq("user_id", session.user.id)
-                    .maybeSingle()
+            try {
+              const { data: patientData } = await supabase
+                .from("patients")
+                .select("user_id")
+                .eq("user_id", session.user.id)
+                .maybeSingle()
 
-                  if (patientData && mounted) {
-                    // Patient existe déjà, rediriger vers dashboard
-                    router.push("/dashboard")
-                    return
-                  } else {
-                    // Patient n'existe pas, aller à l'étape de sélection de tarif
-                    updateState({ currentStep: 2 })
-                  }
-                } catch (e) {
-                  console.warn("Erreur vérification patient:", e)
-                  // En cas d'erreur, aller à l'étape de tarif
-                  updateState({ currentStep: 2 })
-                }
-              } else {
-                // Pas d'utilisateur connecté, rester à l'étape 1 (authentification)
-                updateState({ currentStep: 1 })
+              if (patientData && mounted) {
+                // Patient existe déjà, rediriger vers dashboard
+                router.push("/dashboard")
+                return
+              } else if (mounted) {
+                // Patient n'existe pas, aller à l'étape de sélection de tarif
+                updateState({ currentStep: 2 })
               }
-              updateState({ isInitialized: true })
+            } catch (e) {
+              console.warn("Erreur vérification patient:", e)
+              if (mounted) updateState({ currentStep: 2 })
             }
-          } catch (error) {
-            console.warn("Erreur session:", error)
-            if (mounted) {
-              updateState({ isInitialized: true, currentStep: 1 })
-            }
+          } else if (mounted) {
+            // Pas d'utilisateur connecté, rester à l'étape 1
+            updateState({ currentStep: 1 })
           }
-        } else {
-          // Pas de Supabase, rester à l'étape 1 pour permettre le mode démo
-          if (mounted) {
-            updateState({ isInitialized: true, currentStep: 1 })
-          }
-        }
-      } catch (error) {
-        console.error("Erreur initialisation:", error)
-        if (mounted) {
-          updateState({ isInitialized: true, error: "Erreur d'initialisation", currentStep: 1 })
+        } catch (error) {
+          console.warn("Erreur session:", error)
+          if (mounted) updateState({ currentStep: 1 })
         }
       }
+
+      if (mounted) updateState({ isInitialized: true })
     }
 
-    initialize()
+    initializePage()
 
     return () => {
       mounted = false
     }
-  }, [searchParams, router, t])
+  }, [searchParams, router, updateState, pricingOptions])
 
   // Authentification
-  const handleAuth = async (e: React.FormEvent) => {
+  const handleAuth = useCallback(async (e: React.FormEvent) => {
     e.preventDefault()
     
     if (!supabase) {
@@ -304,7 +285,7 @@ export default function StartConsultationPage() {
         } else if (data.user && !data.session) {
           updateState({ 
             error: null,
-            currentStep: 1 // Rester sur l'étape d'auth avec message de confirmation
+            currentStep: 1
           })
           alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
         }
@@ -318,7 +299,6 @@ export default function StartConsultationPage() {
               : `Erreur de connexion: ${error.message}` 
           })
         } else if (data.user) {
-          // Connexion réussie
           updateState({ user: data.user, currentStep: 2, error: null })
         }
       }
@@ -327,10 +307,10 @@ export default function StartConsultationPage() {
     } finally {
       updateState({ isLoading: false })
     }
-  }
+  }, [state.authView, state.signupEmail, state.loginEmail, state.signupPassword, state.loginPassword, updateState])
 
   // Navigation entre étapes
-  const handleNextStep = async () => {
+  const handleNextStep = useCallback(async () => {
     updateState({ error: null })
 
     switch (state.currentStep) {
@@ -401,7 +381,24 @@ export default function StartConsultationPage() {
         updateState({ currentStep: 5 })
         break
     }
-  }
+  }, [state.currentStep, state.selectedPlan, state.firstName, state.lastName, state.user, state.birthDate, state.gender, state.phone, state.address, state.city, state.country, state.emergencyName, state.emergencyPhone, updateState])
+
+  // Handlers pour les formulaires
+  const handleTabChange = useCallback((value: string) => {
+    updateState({ authView: value as 'login' | 'signup', error: null })
+  }, [updateState])
+
+  const handleSelectPricing = useCallback((planId: string) => {
+    updateState({ selectedPlan: planId })
+  }, [updateState])
+
+  const handleDemoMode = useCallback(() => {
+    updateState({ 
+      currentStep: 2, 
+      user: { email: 'demo@tibok.com' },
+      error: null 
+    })
+  }, [updateState])
 
   // Gestion des erreurs de rendu
   if (!state.isInitialized) {
@@ -491,11 +488,7 @@ export default function StartConsultationPage() {
               <CardDescription>Connectez-vous ou créez un compte pour continuer</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md mx-auto">
-              <Tabs 
-                value={state.authView} 
-                onValueChange={(value) => updateState({ authView: value as 'login' | 'signup', error: null })}
-                className="w-full"
-              >
+              <Tabs value={state.authView} onValueChange={handleTabChange} className="w-full">
                 <TabsList className="grid w-full grid-cols-2">
                   <TabsTrigger value="login">Connexion</TabsTrigger>
                   <TabsTrigger value="signup">Inscription</TabsTrigger>
@@ -581,7 +574,7 @@ export default function StartConsultationPage() {
               {!supabase && (
                 <div className="mt-4 text-center">
                   <Button 
-                    onClick={() => updateState({ currentStep: 2, user: { email: 'demo@tibok.com' } })}
+                    onClick={handleDemoMode}
                     variant="outline" 
                     className="w-full"
                   >
@@ -619,12 +612,12 @@ export default function StartConsultationPage() {
                     className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${
                       state.selectedPlan === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"
                     }`}
-                    onClick={() => updateState({ selectedPlan: option.id })}
+                    onClick={() => handleSelectPricing(option.id)}
                   >
                     <div className="text-center">
                       {option.isPopular && (
                         <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full mb-2 inline-block">
-                          {t.pricingPopularBadge || "Populaire"}
+                          {translations.pricingPopularBadge || "Populaire"}
                         </span>
                       )}
                       <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">
@@ -652,51 +645,51 @@ export default function StartConsultationPage() {
               {/* Section Second Avis Médical */}
               <div className="border-t pt-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
-                  {t.secondOpinionServiceTitle || "Service de second avis médical"}
+                  {translations.secondOpinionServiceTitle || "Service de second avis médical"}
                 </h3>
                 <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
                   <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
                     <div className="text-center sm:text-left mb-2 sm:mb-0">
                       <h4 className="font-semibold text-gray-900">
-                        {t.secondOpinionSubtitle || "Second avis médical"}
+                        {translations.secondOpinionSubtitle || "Second avis médical"}
                       </h4>
                       <p className="text-sm text-gray-600">
-                        {t.secondOpinionDesc || "Obtenez un second avis d'expert"}
+                        {translations.secondOpinionDesc || "Obtenez un second avis d'expert"}
                       </p>
                     </div>
                     <div className="text-center sm:text-right">
                       <div className="text-xl sm:text-2xl font-bold text-blue-600">
-                        {t.secondOpinionPriceDetails || "Sur devis"}
+                        {translations.secondOpinionPriceDetails || "Sur devis"}
                       </div>
-                      <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
+                      <p className="text-sm text-gray-600">{translations.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
                     </div>
                   </div>
                   <div className="grid md:grid-cols-3 gap-4 mt-4">
                     <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                       <Search className="text-blue-600 text-xl mb-2 mx-auto" />
                       <h5 className="font-medium text-gray-900 text-sm">
-                        {t.secondOpinionSearchSpecialist || "Recherche de spécialiste"}
+                        {translations.secondOpinionSearchSpecialist || "Recherche de spécialiste"}
                       </h5>
                       <p className="text-xs text-gray-600">
-                        {t.secondOpinionSearchSpecialistDesc || "Accès à notre réseau d'experts"}
+                        {translations.secondOpinionSearchSpecialistDesc || "Accès à notre réseau d'experts"}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                       <UserMdIcon className="text-blue-600 text-xl mb-2 mx-auto" />
                       <h5 className="font-medium text-gray-900 text-sm">
-                        {t.secondOpinionExpertConsultation || "Consultation d'expert"}
+                        {translations.secondOpinionExpertConsultation || "Consultation d'expert"}
                       </h5>
                       <p className="text-xs text-gray-600">
-                        {t.secondOpinionExpertConsultationDesc || "Avis médical spécialisé"}
+                        {translations.secondOpinionExpertConsultationDesc || "Avis médical spécialisé"}
                       </p>
                     </div>
                     <div className="text-center p-4 bg-white rounded-lg shadow-sm">
                       <FileMedical className="text-blue-600 text-xl mb-2 mx-auto" />
                       <h5 className="font-medium text-gray-900 text-sm">
-                        {t.secondOpinionDetailedReport || "Rapport détaillé"}
+                        {translations.secondOpinionDetailedReport || "Rapport détaillé"}
                       </h5>
                       <p className="text-xs text-gray-600">
-                        {t.secondOpinionDetailedReportDesc || "Analyse complète et recommandations"}
+                        {translations.secondOpinionDetailedReportDesc || "Analyse complète et recommandations"}
                       </p>
                     </div>
                   </div>
