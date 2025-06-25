@@ -54,34 +54,69 @@ const STEPS = [
   { id: 4, label: "Paiement" },
 ]
 
-const PRICING_OPTIONS = [
+// Fonction pour obtenir les vrais tarifs avec les bonnes traductions
+const getPricingOptions = (t: any) => [
   {
     id: "payperuse-local",
-    title: "Pay per use - Local",
-    price: "25€",
-    desc: "Paiement à l'utilisation pour résidents",
-    features: ["Consultation immédiate", "Rapport médical", "Support 24/7"],
+    titleKey: "pricingPayPerUseLocalTitle",
+    title: t.pricingPayPerUseLocalTitle || "Pay per use - Résident",
+    price: t.pricingPayPerUseLocalPrice || "25€",
+    descKey: "pricingPayPerUseLocalDesc", 
+    desc: t.pricingPayPerUseLocalDesc || "Paiement à l'utilisation pour résidents locaux",
+    featuresKeys: ["pricingPayPerUseLocalFeat1", "pricingPayPerUseLocalFeat2", "pricingPayPerUseLocalFeat3"],
+    features: [
+      t.pricingPayPerUseLocalFeat1 || "Consultation immédiate",
+      t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé", 
+      t.pricingPayPerUseLocalFeat3 || "Support client local"
+    ],
   },
   {
     id: "payperuse-tourist",
-    title: "Pay per use - Tourist",
-    price: "35€",
-    desc: "Paiement à l'utilisation pour touristes",
-    features: ["Consultation immédiate", "Rapport médical", "Support multilingue"],
+    titleKey: "pricingPayPerUseTouristTitle",
+    title: t.pricingPayPerUseTouristTitle || "Pay per use - Touriste",
+    price: t.pricingPayPerUseTouristPrice || "35€",
+    descKey: "pricingPayPerUseTouristDesc",
+    desc: t.pricingPayPerUseTouristDesc || "Paiement à l'utilisation pour touristes",
+    featuresKeys: ["pricingPayPerUseTouristFeat1", "pricingPayPerUseTouristFeat2", "pricingPayPerUseTouristFeat3"],
+    features: [
+      t.pricingPayPerUseTouristFeat1 || "Consultation immédiate",
+      t.pricingPayPerUseTouristFeat2 || "Rapport médical multilingue",
+      t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7"
+    ],
   },
   {
     id: "solo",
-    title: "Pack Solo",
-    price: "99€/mois",
-    desc: "Plan individuel mensuel",
-    features: ["Consultations illimitées", "Suivi personnalisé", "Téléconsultations"],
+    titleKey: "pricingSoloPackTitle", 
+    title: t.pricingSoloPackTitle || "Pack Solo",
+    price: t.pricingSoloPackPrice || "49€/mois",
+    descKey: "pricingSoloPackDesc",
+    desc: t.pricingSoloPackDesc || "Plan individuel complet",
+    featuresKeys: ["pricingSoloPackFeat1", "pricingSoloPackFeat2", "pricingSoloPackFeat3"],
+    features: [
+      t.pricingSoloPackFeat1 || "Consultations illimitées", 
+      t.pricingSoloPackFeat2 || "Suivi médical personnalisé",
+      t.pricingSoloPackFeat3 || "Téléconsultations incluses"
+    ],
   },
   {
     id: "family",
-    title: "Pack Famille",
-    price: "199€/mois",
-    desc: "Plan familial pour 4 personnes",
-    features: ["Consultations illimitées", "Suivi familial", "Urgences 24/7", "Pharmacie en ligne"],
+    titleKey: "pricingFamilyPackTitle",
+    title: t.pricingFamilyPackTitle || "Pack Famille", 
+    price: t.pricingFamilyPackPrice || "149€/mois",
+    descKey: "pricingFamilyPackDesc",
+    desc: t.pricingFamilyPackDesc || "Plan familial pour 4 personnes maximum",
+    featuresKeys: [
+      "pricingFamilyPackFeat1",
+      "pricingFamilyPackFeat2", 
+      "pricingFamilyPackFeat3",
+      "pricingFamilyPackFeat4",
+    ],
+    features: [
+      t.pricingFamilyPackFeat1 || "Consultations illimitées pour la famille",
+      t.pricingFamilyPackFeat2 || "Suivi médical complet", 
+      t.pricingFamilyPackFeat3 || "Urgences médicales 24/7",
+      t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison"
+    ],
     isPopular: true,
   },
 ]
@@ -125,6 +160,9 @@ export default function StartConsultationPage() {
   const { language } = useLanguage()
   const t = translations[language] || {}
 
+  // Obtenir les options de tarification avec les bonnes traductions
+  const pricingOptions = getPricingOptions(t)
+
   // État centralisé
   const [state, setState] = useState<AppState>({
     isLoading: false,
@@ -163,8 +201,11 @@ export default function StartConsultationPage() {
       try {
         // Vérifier le plan initial depuis l'URL
         const initialPlan = searchParams.get("plan")
-        if (initialPlan && PRICING_OPTIONS.some(p => p.id === initialPlan)) {
-          updateState({ selectedPlan: initialPlan })
+        if (initialPlan) {
+          const pricingOptions = getPricingOptions(t)
+          if (pricingOptions.some(p => p.id === initialPlan)) {
+            updateState({ selectedPlan: initialPlan })
+          }
         }
 
         // Vérifier la session si Supabase est disponible
@@ -174,9 +215,9 @@ export default function StartConsultationPage() {
             
             if (mounted) {
               if (session?.user) {
-                updateState({ user: session.user, currentStep: 2 })
+                // Utilisateur connecté - vérifier s'il a déjà des données patient
+                updateState({ user: session.user })
                 
-                // Vérifier les données patient
                 try {
                   const { data: patientData } = await supabase
                     .from("patients")
@@ -185,26 +226,41 @@ export default function StartConsultationPage() {
                     .maybeSingle()
 
                   if (patientData && mounted) {
+                    // Patient existe déjà, rediriger vers dashboard
                     router.push("/dashboard")
                     return
+                  } else {
+                    // Patient n'existe pas, aller à l'étape de sélection de tarif
+                    updateState({ currentStep: 2 })
                   }
                 } catch (e) {
                   console.warn("Erreur vérification patient:", e)
+                  // En cas d'erreur, aller à l'étape de tarif
+                  updateState({ currentStep: 2 })
                 }
+              } else {
+                // Pas d'utilisateur connecté, rester à l'étape 1 (authentification)
+                updateState({ currentStep: 1 })
               }
               updateState({ isInitialized: true })
             }
           } catch (error) {
             console.warn("Erreur session:", error)
-            if (mounted) updateState({ isInitialized: true })
+            if (mounted) {
+              updateState({ isInitialized: true, currentStep: 1 })
+            }
           }
         } else {
-          // Pas de Supabase, mode dégradé
-          if (mounted) updateState({ isInitialized: true })
+          // Pas de Supabase, rester à l'étape 1 pour permettre le mode démo
+          if (mounted) {
+            updateState({ isInitialized: true, currentStep: 1 })
+          }
         }
       } catch (error) {
         console.error("Erreur initialisation:", error)
-        if (mounted) updateState({ isInitialized: true, error: "Erreur d'initialisation" })
+        if (mounted) {
+          updateState({ isInitialized: true, error: "Erreur d'initialisation", currentStep: 1 })
+        }
       }
     }
 
@@ -213,7 +269,7 @@ export default function StartConsultationPage() {
     return () => {
       mounted = false
     }
-  }, [searchParams, router])
+  }, [searchParams, router, t])
 
   // Authentification
   const handleAuth = async (e: React.FormEvent) => {
@@ -262,7 +318,8 @@ export default function StartConsultationPage() {
               : `Erreur de connexion: ${error.message}` 
           })
         } else if (data.user) {
-          updateState({ user: data.user, currentStep: 2 })
+          // Connexion réussie
+          updateState({ user: data.user, currentStep: 2, error: null })
         }
       }
     } catch (error: any) {
@@ -524,12 +581,15 @@ export default function StartConsultationPage() {
               {!supabase && (
                 <div className="mt-4 text-center">
                   <Button 
-                    onClick={() => updateState({ currentStep: 2 })}
+                    onClick={() => updateState({ currentStep: 2, user: { email: 'demo@tibok.com' } })}
                     variant="outline" 
                     className="w-full"
                   >
                     Continuer en mode démo
                   </Button>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Mode démonstration - Aucune donnée ne sera sauvegardée
+                  </p>
                 </div>
               )}
             </CardContent>
@@ -543,12 +603,17 @@ export default function StartConsultationPage() {
               <CardTitle className="text-2xl">Sélection du tarif</CardTitle>
               <CardDescription>Choisissez le plan qui vous convient</CardDescription>
               {state.user?.email && (
-                <p className="text-sm text-gray-600">Connecté en tant que {state.user.email}</p>
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3 mt-2">
+                  <p className="text-sm text-green-700 flex items-center">
+                    <Check className="mr-2 h-4 w-4" />
+                    Connecté en tant que <strong className="ml-1">{state.user.email}</strong>
+                  </p>
+                </div>
               )}
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {PRICING_OPTIONS.map((option) => (
+                {pricingOptions.map((option) => (
                   <div
                     key={option.id}
                     className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${
@@ -559,7 +624,7 @@ export default function StartConsultationPage() {
                     <div className="text-center">
                       {option.isPopular && (
                         <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full mb-2 inline-block">
-                          Populaire
+                          {t.pricingPopularBadge || "Populaire"}
                         </span>
                       )}
                       <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">
@@ -582,6 +647,60 @@ export default function StartConsultationPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+
+              {/* Section Second Avis Médical */}
+              <div className="border-t pt-8">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
+                  {t.secondOpinionServiceTitle || "Service de second avis médical"}
+                </h3>
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
+                  <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
+                    <div className="text-center sm:text-left mb-2 sm:mb-0">
+                      <h4 className="font-semibold text-gray-900">
+                        {t.secondOpinionSubtitle || "Second avis médical"}
+                      </h4>
+                      <p className="text-sm text-gray-600">
+                        {t.secondOpinionDesc || "Obtenez un second avis d'expert"}
+                      </p>
+                    </div>
+                    <div className="text-center sm:text-right">
+                      <div className="text-xl sm:text-2xl font-bold text-blue-600">
+                        {t.secondOpinionPriceDetails || "Sur devis"}
+                      </div>
+                      <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
+                    </div>
+                  </div>
+                  <div className="grid md:grid-cols-3 gap-4 mt-4">
+                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                      <Search className="text-blue-600 text-xl mb-2 mx-auto" />
+                      <h5 className="font-medium text-gray-900 text-sm">
+                        {t.secondOpinionSearchSpecialist || "Recherche de spécialiste"}
+                      </h5>
+                      <p className="text-xs text-gray-600">
+                        {t.secondOpinionSearchSpecialistDesc || "Accès à notre réseau d'experts"}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                      <UserMdIcon className="text-blue-600 text-xl mb-2 mx-auto" />
+                      <h5 className="font-medium text-gray-900 text-sm">
+                        {t.secondOpinionExpertConsultation || "Consultation d'expert"}
+                      </h5>
+                      <p className="text-xs text-gray-600">
+                        {t.secondOpinionExpertConsultationDesc || "Avis médical spécialisé"}
+                      </p>
+                    </div>
+                    <div className="text-center p-4 bg-white rounded-lg shadow-sm">
+                      <FileMedical className="text-blue-600 text-xl mb-2 mx-auto" />
+                      <h5 className="font-medium text-gray-900 text-sm">
+                        {t.secondOpinionDetailedReport || "Rapport détaillé"}
+                      </h5>
+                      <p className="text-xs text-gray-600">
+                        {t.secondOpinionDetailedReportDesc || "Analyse complète et recommandations"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               <div className="mt-8 flex justify-center">
@@ -798,7 +917,7 @@ export default function StartConsultationPage() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-900">Plan sélectionné</span>
                     <span className="font-bold text-blue-600">
-                      {PRICING_OPTIONS.find(p => p.id === state.selectedPlan)?.title} - {PRICING_OPTIONS.find(p => p.id === state.selectedPlan)?.price}
+                      {pricingOptions.find(p => p.id === state.selectedPlan)?.title} - {pricingOptions.find(p => p.id === state.selectedPlan)?.price}
                     </span>
                   </div>
                 </div>
