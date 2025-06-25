@@ -1,6 +1,7 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   HeartPulse,
   Check,
@@ -21,233 +22,215 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import LanguageSwitcher from "@/components/language-switcher"
-import { useLanguage } from "@/contexts/language-context"
-import { translations, type TranslationKey } from "@/lib/translations"
-import Link from "next/link"
-import { useSearchParams, useRouter } from "next/navigation"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import Link from "next/link"
 
-console.log("[StartConsultationPage] TOP LEVEL SCRIPT EXECUTION - Debugging Spin")
+// Import conditionnel et sécurisé
+let supabase: any = null
+let useLanguage: any = () => ({ language: 'fr' })
+let translations: any = {}
 
-const stepsConfig = [
-  { id: 1, labelKey: "step1Label" as TranslationKey },
-  { id: 2, labelKey: "step2Label" as TranslationKey },
-  { id: 3, labelKey: "step3Label" as TranslationKey },
-  { id: 4, labelKey: "step4Label" as TranslationKey },
-]
-
-interface PricingOption {
-  id: string
-  titleKey: TranslationKey
-  price: string
-  descKey: TranslationKey
-  featuresKeys: TranslationKey[]
-  isPopular?: boolean
+try {
+  const { getSupabaseBrowserClient } = require("@/lib/supabase/client")
+  supabase = getSupabaseBrowserClient()
+} catch (error) {
+  console.warn("Supabase non disponible:", error)
 }
 
-type AuthView = "signup" | "login"
+try {
+  const { useLanguage: useLanguageHook } = require("@/contexts/language-context")
+  const { translations: translationsData } = require("@/lib/translations")
+  useLanguage = useLanguageHook
+  translations = translationsData
+} catch (error) {
+  console.warn("Contexte de langue non disponible:", error)
+}
+
+// Configuration statique
+const STEPS = [
+  { id: 1, label: "Authentification" },
+  { id: 2, label: "Tarification" },
+  { id: 3, label: "Informations" },
+  { id: 4, label: "Paiement" },
+]
+
+const PRICING_OPTIONS = [
+  {
+    id: "payperuse-local",
+    title: "Pay per use - Local",
+    price: "25€",
+    desc: "Paiement à l'utilisation pour résidents",
+    features: ["Consultation immédiate", "Rapport médical", "Support 24/7"],
+  },
+  {
+    id: "payperuse-tourist",
+    title: "Pay per use - Tourist",
+    price: "35€",
+    desc: "Paiement à l'utilisation pour touristes",
+    features: ["Consultation immédiate", "Rapport médical", "Support multilingue"],
+  },
+  {
+    id: "solo",
+    title: "Pack Solo",
+    price: "99€/mois",
+    desc: "Plan individuel mensuel",
+    features: ["Consultations illimitées", "Suivi personnalisé", "Téléconsultations"],
+  },
+  {
+    id: "family",
+    title: "Pack Famille",
+    price: "199€/mois",
+    desc: "Plan familial pour 4 personnes",
+    features: ["Consultations illimitées", "Suivi familial", "Urgences 24/7", "Pharmacie en ligne"],
+    isPopular: true,
+  },
+]
+
+interface AppState {
+  // Status
+  isLoading: boolean
+  error: string | null
+  currentStep: number
+  isInitialized: boolean
+  
+  // Auth
+  user: any
+  authView: 'login' | 'signup'
+  
+  // Forms
+  loginEmail: string
+  loginPassword: string
+  signupEmail: string
+  signupPassword: string
+  
+  // Patient
+  firstName: string
+  lastName: string
+  phone: string
+  birthDate: string
+  gender: string
+  address: string
+  city: string
+  country: string
+  emergencyName: string
+  emergencyPhone: string
+  
+  // Pricing
+  selectedPlan: string | null
+}
 
 export default function StartConsultationPage() {
-  const supabase = getSupabaseBrowserClient()
   const router = useRouter()
   const searchParams = useSearchParams()
-  const initialPlan = searchParams.get("plan")
-
-  const [currentStep, setCurrentStep] = useState(1)
   const { language } = useLanguage()
-  const t = translations[language]
+  const t = translations[language] || {}
 
-  const [loginEmail, setLoginEmail] = useState("")
-  const [loginPassword, setLoginPassword] = useState("")
-  const [signupEmail, setSignupEmail] = useState("")
-  const [signupPassword, setSignupPassword] = useState("")
+  // État centralisé
+  const [state, setState] = useState<AppState>({
+    isLoading: false,
+    error: null,
+    currentStep: 1,
+    isInitialized: false,
+    user: null,
+    authView: 'login',
+    loginEmail: '',
+    loginPassword: '',
+    signupEmail: '',
+    signupPassword: '',
+    firstName: '',
+    lastName: '',
+    phone: '',
+    birthDate: '',
+    gender: '',
+    address: '',
+    city: '',
+    country: '',
+    emergencyName: '',
+    emergencyPhone: '',
+    selectedPlan: null,
+  })
 
-  const [authView, setAuthView] = useState<AuthView>("login")
-  const [isLoading, setIsLoading] = useState(false)
-  const [isCheckingSession, setIsCheckingSession] = useState(true)
+  // Helper pour mettre à jour l'état
+  const updateState = (updates: Partial<AppState>) => {
+    setState(prev => ({ ...prev, ...updates }))
+  }
 
-  const [authError, setAuthError] = useState<string | null>(null)
-  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
-  const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
-
-  const [firstName, setFirstName] = useState("")
-  const [lastName, setLastName] = useState("")
-  const [patientDateOfBirth, setPatientDateOfBirth] = useState("")
-  const [patientGender, setPatientGender] = useState("")
-  const [patientPhoneNumber, setPatientPhoneNumber] = useState("")
-  const [patientAddress, setPatientAddress] = useState("")
-  const [patientCity, setPatientCity] = useState("")
-  const [patientCountry, setPatientCountry] = useState("")
-  const [patientEmergencyContactName, setPatientEmergencyContactName] = useState("")
-  const [patientEmergencyContactPhone, setPatientEmergencyContactPhone] = useState("")
-
-  const [pricingLoading, setPricingLoading] = useState(false)
-  const [pricingError, setPricingError] = useState<string | null>(null)
-
-  const createUserProfile = useCallback(
-    async (userId: string, email: string) => {
-      console.log("[DEBUG_SPIN] createUserProfile START for userId:", userId)
-      try {
-        const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
-        if (error) {
-          console.error("[DEBUG_SPIN] createUserProfile ERROR:", error)
-        } else {
-          console.log("[DEBUG_SPIN] createUserProfile SUCCESS for userId:", userId)
-        }
-      } catch (error) {
-        console.error("[DEBUG_SPIN] createUserProfile EXCEPTION:", error)
-      }
-      console.log("[DEBUG_SPIN] createUserProfile END for userId:", userId)
-    },
-    [supabase],
-  )
-
-  const ensureUserProfile = useCallback(
-    async (userId: string, email: string) => {
-      console.log("[DEBUG_SPIN] ensureUserProfile START for userId:", userId)
-      try {
-        const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
-        if (error && error.code === "PGRST116") {
-          console.log("[DEBUG_SPIN] ensureUserProfile: Profile not found, creating...")
-          await createUserProfile(userId, email)
-        } else if (error) {
-          console.error("[DEBUG_SPIN] ensureUserProfile: Error checking profile:", error)
-        } else {
-          console.log("[DEBUG_SPIN] ensureUserProfile: Profile exists.")
-        }
-      } catch (error) {
-        console.error("[DEBUG_SPIN] ensureUserProfile: EXCEPTION:", error)
-      }
-      console.log("[DEBUG_SPIN] ensureUserProfile END for userId:", userId)
-    },
-    [supabase, createUserProfile],
-  )
-
+  // Initialisation
   useEffect(() => {
-    console.log("[DEBUG_SPIN] onAuthStateChange useEffect MOUNTED. isCheckingSession:", isCheckingSession)
+    let mounted = true
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(`%c[DEBUG_SPIN] onAuthStateChange FIRED. Event: ${event}`, "color: orange; font-weight: bold;")
-      if (session) {
-        console.log(`%c[DEBUG_SPIN] Session EXISTS. User ID: ${session.user.id}`, "color: green;")
-        setIsUserLoggedIn(true)
-        setUserEmail(session.user.email)
-
-        console.log("[DEBUG_SPIN] CALLING ensureUserProfile...")
-        try {
-          await ensureUserProfile(session.user.id, session.user.email || "")
-          console.log("[DEBUG_SPIN] ensureUserProfile COMPLETED.")
-        } catch (e) {
-          console.error("[DEBUG_SPIN] ensureUserProfile FAILED in onAuthStateChange:", e)
+    const initialize = async () => {
+      try {
+        // Vérifier le plan initial depuis l'URL
+        const initialPlan = searchParams.get("plan")
+        if (initialPlan && PRICING_OPTIONS.some(p => p.id === initialPlan)) {
+          updateState({ selectedPlan: initialPlan })
         }
 
-        console.log("[DEBUG_SPIN] CHECKING patient data...")
-        try {
-          const { data: patientData, error: patientError } = await supabase
-            .from("patients")
-            .select("user_id")
-            .eq("user_id", session.user.id)
-            .maybeSingle()
+        // Vérifier la session si Supabase est disponible
+        if (supabase) {
+          try {
+            const { data: { session }, error } = await supabase.auth.getSession()
+            
+            if (mounted) {
+              if (session?.user) {
+                updateState({ user: session.user, currentStep: 2 })
+                
+                // Vérifier les données patient
+                try {
+                  const { data: patientData } = await supabase
+                    .from("patients")
+                    .select("user_id")
+                    .eq("user_id", session.user.id)
+                    .maybeSingle()
 
-          if (patientError) {
-            console.error("[DEBUG_SPIN] Error checking patient data:", patientError)
-            setCurrentStep(2)
-          } else if (patientData) {
-            console.log("[DEBUG_SPIN] Patient data FOUND. Redirecting to /dashboard.")
-            router.push("/dashboard")
-          } else {
-            console.log("[DEBUG_SPIN] NO patient data. Setting currentStep to 2.")
-            setCurrentStep(2)
+                  if (patientData && mounted) {
+                    router.push("/dashboard")
+                    return
+                  }
+                } catch (e) {
+                  console.warn("Erreur vérification patient:", e)
+                }
+              }
+              updateState({ isInitialized: true })
+            }
+          } catch (error) {
+            console.warn("Erreur session:", error)
+            if (mounted) updateState({ isInitialized: true })
           }
-          console.log("[DEBUG_SPIN] Patient data check COMPLETED.")
-        } catch (e) {
-          console.error("[DEBUG_SPIN] CATCH block for patient data check:", e)
-          setCurrentStep(2)
+        } else {
+          // Pas de Supabase, mode dégradé
+          if (mounted) updateState({ isInitialized: true })
         }
-      } else {
-        console.log(`%c[DEBUG_SPIN] Session is NULL. Event: ${event}`, "color: red;")
-        setIsUserLoggedIn(false)
-        setUserEmail(undefined)
-        setCurrentStep(1)
+      } catch (error) {
+        console.error("Erreur initialisation:", error)
+        if (mounted) updateState({ isInitialized: true, error: "Erreur d'initialisation" })
       }
+    }
 
-      console.log(
-        `%c[DEBUG_SPIN] ATTEMPTING to set isCheckingSession to false. Current step: ${currentStep}`,
-        "color: blue; font-weight: bold;",
-      )
-      setIsCheckingSession(false)
-      console.log(`%c[DEBUG_SPIN] SUCCESSFULLY set isCheckingSession to false.`, "color: blue; font-weight: bold;")
-    })
+    initialize()
 
     return () => {
-      console.log("[DEBUG_SPIN] onAuthStateChange useEffect UNMOUNTING.")
-      subscription.unsubscribe()
+      mounted = false
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [supabase, router]) // J'ai enlevé ensureUserProfile des dépendances pour l'instant pour simplifier, on le remettra si besoin.
+  }, [searchParams, router])
 
-  const pricingOptions: PricingOption[] = [
-    {
-      id: "payperuse-local",
-      titleKey: "pricingPayPerUseLocalTitle",
-      price: t.pricingPayPerUseLocalPrice,
-      descKey: "pricingPayPerUseLocalDesc",
-      featuresKeys: ["pricingPayPerUseLocalFeat1", "pricingPayPerUseLocalFeat2", "pricingPayPerUseLocalFeat3"],
-    },
-    {
-      id: "payperuse-tourist",
-      titleKey: "pricingPayPerUseTouristTitle",
-      price: t.pricingPayPerUseTouristPrice,
-      descKey: "pricingPayPerUseTouristDesc",
-      featuresKeys: ["pricingPayPerUseTouristFeat1", "pricingPayPerUseTouristFeat2", "pricingPayPerUseTouristFeat3"],
-    },
-    {
-      id: "solo",
-      titleKey: "pricingSoloPackTitle",
-      price: t.pricingSoloPackPrice,
-      descKey: "pricingSoloPackDesc",
-      featuresKeys: ["pricingSoloPackFeat1", "pricingSoloPackFeat2", "pricingSoloPackFeat3"],
-    },
-    {
-      id: "family",
-      titleKey: "pricingFamilyPackTitle",
-      price: t.pricingFamilyPackPrice,
-      descKey: "pricingFamilyPackDesc",
-      featuresKeys: [
-        "pricingFamilyPackFeat1",
-        "pricingFamilyPackFeat2",
-        "pricingFamilyPackFeat3",
-        "pricingFamilyPackFeat4",
-      ],
-      isPopular: true,
-    },
-  ]
-
-  const [selectedPricing, setSelectedPricing] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (initialPlan && pricingOptions.some((p) => p.id === initialPlan)) {
-      setSelectedPricing(initialPlan)
-    } else if (initialPlan) {
-      console.warn("StartConsultationPage: Initial plan from URL not found in pricingOptions:", initialPlan)
-    }
-  }, [initialPlan])
-
-  const handleEmailAuth = async (e: React.FormEvent<HTMLFormElement>) => {
+  // Authentification
+  const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
-    setAuthError(null)
-    setSignupSuccessMessage(null)
-    const email = authView === "signup" ? signupEmail : loginEmail
-    const password = authView === "signup" ? signupPassword : loginPassword
+    
+    if (!supabase) {
+      updateState({ error: "Service d'authentification non disponible" })
+      return
+    }
+
+    updateState({ isLoading: true, error: null })
 
     try {
-      if (authView === "signup") {
+      const email = state.authView === 'signup' ? state.signupEmail : state.loginEmail
+      const password = state.authView === 'signup' ? state.signupPassword : state.loginPassword
+
+      if (state.authView === 'signup') {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -255,178 +238,129 @@ export default function StartConsultationPage() {
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
           },
         })
+
         if (error) {
-          setAuthError(
-            error.message.includes("User already registered")
-              ? "Un compte avec cet email existe déjà. Essayez de vous connecter."
-              : `Erreur d'inscription: ${error.message}`,
-          )
+          updateState({ 
+            error: error.message.includes("User already registered") 
+              ? "Un compte avec cet email existe déjà." 
+              : `Erreur d'inscription: ${error.message}` 
+          })
         } else if (data.user && !data.session) {
-          setSignupSuccessMessage(
-            "Inscription réussie ! Veuillez consulter votre boîte de réception pour confirmer votre adresse e-mail avant de vous connecter.",
-          )
+          updateState({ 
+            error: null,
+            currentStep: 1 // Rester sur l'étape d'auth avec message de confirmation
+          })
+          alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
         }
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        
         if (error) {
-          setAuthError(
-            error.message.includes("Email not confirmed")
-              ? "Votre e-mail n'a pas été confirmé. Veuillez vérifier votre boîte de réception et cliquer sur le lien de confirmation."
-              : error.message.includes("Invalid login credentials")
-                ? "Email ou mot de passe incorrect."
-                : `Erreur de connexion: ${error.message}`,
-          )
+          updateState({ 
+            error: error.message.includes("Invalid login credentials")
+              ? "Email ou mot de passe incorrect."
+              : `Erreur de connexion: ${error.message}` 
+          })
+        } else if (data.user) {
+          updateState({ user: data.user, currentStep: 2 })
         }
       }
     } catch (error: any) {
-      setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion et réessayez.")
+      updateState({ error: "Erreur de connexion. Vérifiez votre connexion internet." })
     } finally {
-      setIsLoading(false)
+      updateState({ isLoading: false })
     }
   }
 
-  const handleTabChange = (value: string) => {
-    setAuthView(value as AuthView)
-    setAuthError(null)
-    setSignupSuccessMessage(null)
-  }
-
+  // Navigation entre étapes
   const handleNextStep = async () => {
-    if (currentStep === 3) {
-      if (!firstName || !lastName) {
-        setAuthError(t.fillRequiredFieldsError || "Veuillez remplir le prénom et le nom.")
-        return
-      }
-      setIsLoading(true)
-      setAuthError(null)
-      try {
-        const {
-          data: { user },
-        } = await supabase.auth.getUser()
-        if (!user) {
-          setAuthError("Utilisateur non trouvé. Veuillez vous reconnecter.")
-          setCurrentStep(1)
+    updateState({ error: null })
+
+    switch (state.currentStep) {
+      case 1:
+        updateState({ currentStep: 2 })
+        break
+        
+      case 2:
+        if (!state.selectedPlan) {
+          updateState({ error: "Veuillez sélectionner un plan tarifaire." })
           return
         }
-
-        const patientData = {
-          user_id: user.id,
-          first_name: firstName,
-          last_name: lastName,
-          date_of_birth: patientDateOfBirth || null,
-          gender: patientGender || null,
-          phone_number: patientPhoneNumber || null,
-          email: user.email,
-          address: patientAddress || null,
-          city: patientCity || null,
-          country: patientCountry || null,
-          emergency_contact_name: patientEmergencyContactName || null,
-          emergency_contact_phone: patientEmergencyContactPhone || null,
-        }
-        const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-
-        if (patientError) {
-          setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
+        updateState({ currentStep: 3 })
+        break
+        
+      case 3:
+        if (!state.firstName || !state.lastName) {
+          updateState({ error: "Veuillez remplir au moins le prénom et le nom." })
           return
         }
+        
+        // Sauvegarder les données patient si Supabase disponible
+        if (supabase && state.user) {
+          updateState({ isLoading: true })
+          
+          try {
+            const patientData = {
+              user_id: state.user.id,
+              first_name: state.firstName,
+              last_name: state.lastName,
+              date_of_birth: state.birthDate || null,
+              gender: state.gender || null,
+              phone_number: state.phone || null,
+              email: state.user.email,
+              address: state.address || null,
+              city: state.city || null,
+              country: state.country || null,
+              emergency_contact_name: state.emergencyName || null,
+              emergency_contact_phone: state.emergencyPhone || null,
+            }
+            
+            const { error } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
+            
+            if (error) {
+              updateState({ error: `Erreur sauvegarde: ${error.message}` })
+              return
+            }
 
-        const fullName = `${firstName} ${lastName}`.trim()
-        await supabase.from("profiles").upsert({ id: user.id, full_name: fullName }, { onConflict: "id" })
-
-        setCurrentStep(4)
-      } catch (error: any) {
-        setAuthError(`Une erreur inattendue est survenue: ${error.message}`)
-      } finally {
-        setIsLoading(false)
-      }
-      return
+            // Mettre à jour le profil
+            const fullName = `${state.firstName} ${state.lastName}`.trim()
+            await supabase.from("profiles").upsert(
+              { id: state.user.id, full_name: fullName }, 
+              { onConflict: "id" }
+            )
+            
+          } catch (error: any) {
+            updateState({ error: `Erreur: ${error.message}` })
+            return
+          } finally {
+            updateState({ isLoading: false })
+          }
+        }
+        
+        updateState({ currentStep: 4 })
+        break
+        
+      case 4:
+        updateState({ currentStep: 5 })
+        break
     }
-
-    if (currentStep === 1) setCurrentStep(2)
-    else if (currentStep === 2) {
-      if (!selectedPricing) {
-        setPricingError(t.selectPlanError || "Veuillez sélectionner un plan tarifaire.")
-        return
-      }
-      setPricingError(null)
-      setCurrentStep(3)
-    } else if (currentStep === 4) setCurrentStep(5)
   }
 
-  const secondOpinionFeatures = [
-    {
-      icon: <Search className="text-blue-600 text-xl mb-2" />,
-      titleKey: "secondOpinionSearchSpecialist" as TranslationKey,
-      descKey: "secondOpinionSearchSpecialistDesc" as TranslationKey,
-    },
-    {
-      icon: <UserMdIcon className="text-blue-600 text-xl mb-2" />,
-      titleKey: "secondOpinionExpertConsultation" as TranslationKey,
-      descKey: "secondOpinionExpertConsultationDesc" as TranslationKey,
-    },
-    {
-      icon: <FileMedical className="text-blue-600 text-xl mb-2" />,
-      titleKey: "secondOpinionDetailedReport" as TranslationKey,
-      descKey: "secondOpinionDetailedReportDesc" as TranslationKey,
-    },
-  ]
-
-  const successDashboardLinks = [
-    {
-      icon: <Users className="text-blue-600 text-xl mb-2" />,
-      titleKey: "waitingRoomTitle" as TranslationKey,
-      descKey: "waitingRoomDesc" as TranslationKey,
-    },
-    {
-      icon: <History className="text-blue-600 text-xl mb-2" />,
-      titleKey: "historyTitle" as TranslationKey,
-      descKey: "historyDesc" as TranslationKey,
-    },
-    {
-      icon: <UserMdIcon className="text-blue-600 text-xl mb-2" />,
-      titleKey: "secondOpinionLinkTitle" as TranslationKey,
-      descKey: "secondOpinionLinkDesc" as TranslationKey,
-    },
-    {
-      icon: <BotIcon className="text-blue-600 text-xl mb-2" />,
-      titleKey: "tibotTitle" as TranslationKey,
-      descKey: "tibotDesc" as TranslationKey,
-    },
-  ]
-
-  const handleSelectPricing = (id: string) => {
-    setSelectedPricing(id)
-    if (pricingError) setPricingError(null)
-  }
-
-  const getSelectedPlanInfo = () => {
-    if (!selectedPricing) return ""
-    const plan = pricingOptions.find((p) => p.id === selectedPricing)
-    if (!plan) return ""
-    return `${t[plan.titleKey]} - ${plan.price}${plan.descKey !== "pricingPayPerUseLocalDesc" && plan.descKey !== "pricingPayPerUseTouristDesc" ? t[plan.descKey] : ""}`
-  }
-
-  const getStep1Label = () => {
-    if (isUserLoggedIn) return t.step1Label || "Authentification"
-    return authView === "login" ? "Connexion" : "Inscription"
-  }
-
-  console.log(`[DEBUG_SPIN] Page RENDERING. isCheckingSession: ${isCheckingSession}, currentStep: ${currentStep}`)
-
-  if (isCheckingSession) {
-    console.log("[DEBUG_SPIN] RENDERING LOADER because isCheckingSession is TRUE")
+  // Gestion des erreurs de rendu
+  if (!state.isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
-        <p className="ml-2">Vérification de la session...</p>
+        <div className="text-center">
+          <Loader2 className="animate-spin text-blue-600 h-12 w-12 mx-auto mb-4" />
+          <p className="text-gray-600">Chargement...</p>
+        </div>
       </div>
     )
   }
 
-  console.log(`[DEBUG_SPIN] RENDERING MAIN CONTENT. currentStep: ${currentStep}`)
-
   return (
     <div className="bg-gray-50 min-h-screen">
+      {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center py-4">
@@ -438,35 +372,37 @@ export default function StartConsultationPage() {
                 <h1 className="text-xl font-bold text-gray-900">
                   TIBOK<sup className="text-xs">®</sup>
                 </h1>
-                <p className="text-sm text-gray-600">{t.startConsultationBaseline || "Votre santé, notre priorité"}</p>
+                <p className="text-sm text-gray-600">Votre santé, notre priorité</p>
               </div>
             </Link>
-            <LanguageSwitcher />
           </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {currentStep <= 4 && (
+        {/* Indicateur d'étapes */}
+        {state.currentStep <= 4 && (
           <div className="mb-8">
             <div className="flex items-center justify-center space-x-2 sm:space-x-4">
-              {stepsConfig.map((step, index) => (
+              {STEPS.map((step, index) => (
                 <React.Fragment key={step.id}>
                   <div className="flex flex-col sm:flex-row items-center text-center sm:text-left">
                     <div
                       className={`w-8 h-8 rounded-full flex items-center justify-center font-semibold text-white ${
-                        currentStep >= step.id ? "bg-blue-700" : "bg-gray-400"
+                        state.currentStep >= step.id ? "bg-blue-700" : "bg-gray-400"
                       }`}
                     >
-                      {currentStep > step.id ? <Check size={18} /> : step.id}
+                      {state.currentStep > step.id ? <Check size={18} /> : step.id}
                     </div>
                     <span
-                      className={`ml-0 sm:ml-2 mt-1 sm:mt-0 text-xs sm:text-sm font-medium ${currentStep >= step.id ? "text-blue-700" : "text-gray-500"}`}
+                      className={`ml-0 sm:ml-2 mt-1 sm:mt-0 text-xs sm:text-sm font-medium ${
+                        state.currentStep >= step.id ? "text-blue-700" : "text-gray-500"
+                      }`}
                     >
-                      {step.id === 1 ? getStep1Label() : t[step.labelKey] || `Étape ${step.id}`}
+                      {step.label}
                     </span>
                   </div>
-                  {index < stepsConfig.length - 1 && (
+                  {index < STEPS.length - 1 && (
                     <div className="flex-1 h-1 bg-gray-200 max-w-[3rem] sm:max-w-[4rem]"></div>
                   )}
                 </React.Fragment>
@@ -475,171 +411,171 @@ export default function StartConsultationPage() {
           </div>
         )}
 
-        {currentStep === 1 && (
+        {/* Affichage des erreurs */}
+        {state.error && (
+          <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <AlertTriangle className="inline-block mr-2 h-5 w-5" />
+            <span className="block sm:inline">{state.error}</span>
+            <button 
+              className="absolute top-0 bottom-0 right-0 px-4 py-3"
+              onClick={() => updateState({ error: null })}
+            >
+              <span className="sr-only">Fermer</span>
+              ×
+            </button>
+          </div>
+        )}
+
+        {/* Étape 1: Authentification */}
+        {state.currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">Authentification</CardTitle>
               <CardDescription>Connectez-vous ou créez un compte pour continuer</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 max-w-md mx-auto">
-              {authError && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
-                  <AlertTriangle className="inline-block mr-2 h-5 w-5" />
-                  <span className="block sm:inline">{authError}</span>
-                </div>
-              )}
-              {signupSuccessMessage && (
-                <div
-                  className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded relative"
-                  role="alert"
-                >
-                  <Check className="inline-block mr-2 h-5 w-5" />
-                  <span className="block sm:inline">{signupSuccessMessage}</span>
-                </div>
-              )}
-              <Tabs value={authView} onValueChange={handleTabChange} className="w-full">
+              <Tabs 
+                value={state.authView} 
+                onValueChange={(value) => updateState({ authView: value as 'login' | 'signup', error: null })}
+                className="w-full"
+              >
                 <TabsList className="grid w-full grid-cols-2">
-                  <TabsTrigger
-                    value="login"
-                    className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
-                  >
-                    Connexion
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="signup"
-                    className="text-gray-900 font-medium data-[state=active]:text-gray-900 data-[state=active]:bg-white"
-                  >
-                    Inscription
-                  </TabsTrigger>
+                  <TabsTrigger value="login">Connexion</TabsTrigger>
+                  <TabsTrigger value="signup">Inscription</TabsTrigger>
                 </TabsList>
+                
                 <TabsContent value="login">
-                  <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
+                  <form onSubmit={handleAuth} className="space-y-4 pt-4">
                     <div>
-                      <Label htmlFor="login-email">{t.emailLabel || "Email"}</Label>
+                      <Label htmlFor="login-email">Email</Label>
                       <Input
                         id="login-email"
                         type="email"
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
+                        value={state.loginEmail}
+                        onChange={(e) => updateState({ loginEmail: e.target.value })}
                         placeholder="email@example.com"
                         required
-                        autoComplete="email"
                       />
                     </div>
                     <div>
-                      <Label htmlFor="login-password">{t.passwordLabel || "Mot de passe"}</Label>
+                      <Label htmlFor="login-password">Mot de passe</Label>
                       <Input
                         id="login-password"
                         type="password"
-                        value={loginPassword}
-                        onChange={(e) => setLoginPassword(e.target.value)}
+                        value={state.loginPassword}
+                        onChange={(e) => updateState({ loginPassword: e.target.value })}
                         placeholder="••••••••"
                         required
-                        autoComplete="current-password"
                       />
                     </div>
-                    <Button type="submit" className="w-full py-3" disabled={isLoading}>
-                      {isLoading ? (
+                    <Button type="submit" className="w-full py-3" disabled={state.isLoading}>
+                      {state.isLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
-                          Validation
+                          Connexion...
                         </>
                       ) : (
-                        "Validation"
+                        "Se connecter"
                       )}
                     </Button>
                   </form>
                 </TabsContent>
+                
                 <TabsContent value="signup">
-                  <form onSubmit={handleEmailAuth} className="space-y-4 pt-4">
+                  <form onSubmit={handleAuth} className="space-y-4 pt-4">
                     <div>
-                      <Label htmlFor="signup-email">{t.emailLabel || "Email"}</Label>
+                      <Label htmlFor="signup-email">Email</Label>
                       <Input
                         id="signup-email"
                         type="email"
-                        value={signupEmail}
-                        onChange={(e) => setSignupEmail(e.target.value)}
+                        value={state.signupEmail}
+                        onChange={(e) => updateState({ signupEmail: e.target.value })}
                         placeholder="email@example.com"
                         required
-                        autoComplete="email"
                       />
                     </div>
                     <div>
-                      <Label htmlFor="signup-password">{t.passwordLabel || "Mot de passe"}</Label>
+                      <Label htmlFor="signup-password">Mot de passe</Label>
                       <Input
                         id="signup-password"
                         type="password"
-                        value={signupPassword}
-                        onChange={(e) => setSignupPassword(e.target.value)}
+                        value={state.signupPassword}
+                        onChange={(e) => updateState({ signupPassword: e.target.value })}
                         placeholder="••••••••"
                         required
                         minLength={6}
-                        autoComplete="new-password"
                       />
                     </div>
-                    <Button type="submit" className="w-full py-3" disabled={isLoading}>
-                      {isLoading ? (
+                    <Button type="submit" className="w-full py-3" disabled={state.isLoading}>
+                      {state.isLoading ? (
                         <>
                           <Loader2 className="animate-spin mr-2" size={16} />
-                          Validation
+                          Inscription...
                         </>
                       ) : (
-                        "Validation"
+                        "S'inscrire"
                       )}
                     </Button>
                   </form>
                 </TabsContent>
               </Tabs>
+
+              {/* Mode dégradé si pas de Supabase */}
+              {!supabase && (
+                <div className="mt-4 text-center">
+                  <Button 
+                    onClick={() => updateState({ currentStep: 2 })}
+                    variant="outline" 
+                    className="w-full"
+                  >
+                    Continuer en mode démo
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}
 
-        {currentStep === 2 && (
+        {/* Étape 2: Sélection du tarif */}
+        {state.currentStep === 2 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.pricingSelectionTitle || "Sélection du tarif"}</CardTitle>
-              <CardDescription>{t.pricingSelectionSubtitle || "Choisissez le plan qui vous convient"}</CardDescription>
-              {userEmail && (
-                <p className="text-sm text-gray-600">
-                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
-                </p>
+              <CardTitle className="text-2xl">Sélection du tarif</CardTitle>
+              <CardDescription>Choisissez le plan qui vous convient</CardDescription>
+              {state.user?.email && (
+                <p className="text-sm text-gray-600">Connecté en tant que {state.user.email}</p>
               )}
             </CardHeader>
             <CardContent>
-              {pricingError && (
-                <div
-                  className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
-                  role="alert"
-                >
-                  <AlertTriangle className="inline-block mr-2 h-5 w-5" />
-                  <span className="block sm:inline">{pricingError}</span>
-                </div>
-              )}
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                {pricingOptions.map((option) => (
+                {PRICING_OPTIONS.map((option) => (
                   <div
                     key={option.id}
-                    className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${selectedPricing === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"}`}
-                    onClick={() => handleSelectPricing(option.id)}
+                    className={`border-2 rounded-lg p-4 sm:p-6 cursor-pointer transition-all duration-300 ease-in-out hover:shadow-lg hover:translate-y-[-2px] ${
+                      state.selectedPlan === option.id ? "border-blue-700 bg-blue-500/5" : "border-gray-200"
+                    }`}
+                    onClick={() => updateState({ selectedPlan: option.id })}
                   >
                     <div className="text-center">
                       {option.isPopular && (
                         <span className="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full mb-2 inline-block">
-                          {t.pricingPopularBadge || "Populaire"}
+                          Populaire
                         </span>
                       )}
                       <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">
-                        {t[option.titleKey] || option.titleKey}
+                        {option.title}
                       </h3>
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">{option.price}</div>
+                      <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">
+                        {option.price}
+                      </div>
                       <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">
-                        {t[option.descKey] || option.descKey}
+                        {option.desc}
                       </p>
                       <ul className="text-xs text-gray-600 space-y-1 text-left">
-                        {option.featuresKeys.map((featKey) => (
-                          <li key={featKey} className="flex items-start">
+                        {option.features.map((feature, index) => (
+                          <li key={index} className="flex items-start">
                             <Check size={14} className="mr-1 mt-0.5 text-green-500 flex-shrink-0" />
-                            <span>{t[featKey] || featKey}</span>
+                            <span>{feature}</span>
                           </li>
                         ))}
                       </ul>
@@ -647,240 +583,162 @@ export default function StartConsultationPage() {
                   </div>
                 ))}
               </div>
-              <div className="border-t pt-8">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
-                  {t.secondOpinionServiceTitle || "Service de second avis médical"}
-                </h3>
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
-                  <div className="flex flex-col sm:flex-row items-center justify-between mb-4">
-                    <div className="text-center sm:text-left mb-2 sm:mb-0">
-                      <h4 className="font-semibold text-gray-900">
-                        {t.secondOpinionSubtitle || "Second avis médical"}
-                      </h4>
-                      <p className="text-sm text-gray-600">
-                        {t.secondOpinionDesc || "Obtenez un second avis d'expert"}
-                      </p>
-                    </div>
-                    <div className="text-center sm:text-right">
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600">
-                        {t.secondOpinionPriceDetails || "Sur devis"}
-                      </div>
-                      <p className="text-sm text-gray-600">{t.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
-                    </div>
-                  </div>
-                  <div className="grid md:grid-cols-3 gap-4 mt-4">
-                    {secondOpinionFeatures.map((feature) => (
-                      <div key={feature.titleKey} className="text-center p-4 bg-white rounded-lg shadow-sm">
-                        {feature.icon}
-                        <h5 className="font-medium text-gray-900 text-sm">{t[feature.titleKey] || feature.titleKey}</h5>
-                        <p className="text-xs text-gray-600">{t[feature.descKey] || feature.descKey}</p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
+
               <div className="mt-8 flex justify-center">
                 <Button
                   onClick={handleNextStep}
                   className="px-8 py-3 text-base"
-                  disabled={isLoading || !selectedPricing}
+                  disabled={state.isLoading || !state.selectedPlan}
                 >
-                  {isLoading && currentStep === 2 ? (
-                    <>
-                      <Loader2 className="animate-spin mr-2" size={16} />
-                      Chargement...
-                    </>
-                  ) : (
-                    t.continueButton || "Continuer"
-                  )}
+                  Continuer
                 </Button>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {currentStep === 3 && (
+        {/* Étape 3: Informations patient */}
+        {state.currentStep === 3 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.patientInfoTitle || "Informations patient"}</CardTitle>
-              <CardDescription>{t.patientInfoSubtitle || "Renseignez vos informations médicales"}</CardDescription>
-              {userEmail && (
-                <p className="text-sm text-gray-600">
-                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
-                </p>
-              )}
+              <CardTitle className="text-2xl">Informations patient</CardTitle>
+              <CardDescription>Renseignez vos informations médicales</CardDescription>
             </CardHeader>
             <CardContent>
-              {authError && (
-                <div
-                  className="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative"
-                  role="alert"
-                >
-                  <AlertTriangle className="inline-block mr-2 h-5 w-5" />
-                  <span className="block sm:inline">{authError}</span>
-                </div>
-              )}
               <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="firstName">{t.firstNameLabel || "Prénom"}</Label>
+                    <Label htmlFor="firstName">Prénom *</Label>
                     <Input
                       id="firstName"
-                      placeholder={t.firstNameLabel || "Prénom"}
-                      value={firstName}
-                      onChange={(e) => setFirstName(e.target.value)}
+                      placeholder="Prénom"
+                      value={state.firstName}
+                      onChange={(e) => updateState({ firstName: e.target.value })}
                       required
                     />
                   </div>
                   <div>
-                    <Label htmlFor="lastName">{t.lastNameLabel || "Nom"}</Label>
+                    <Label htmlFor="lastName">Nom *</Label>
                     <Input
                       id="lastName"
-                      placeholder={t.lastNameLabel || "Nom"}
-                      value={lastName}
-                      onChange={(e) => setLastName(e.target.value)}
+                      placeholder="Nom"
+                      value={state.lastName}
+                      onChange={(e) => updateState({ lastName: e.target.value })}
                       required
                     />
                   </div>
                 </div>
+
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="email-patient">{t.emailLabel || "Email"}</Label>
+                    <Label htmlFor="email-patient">Email</Label>
                     <Input
                       id="email-patient"
                       type="email"
                       placeholder="email@example.com"
-                      value={userEmail || ""}
+                      value={state.user?.email || ""}
                       readOnly
                       disabled
                     />
                   </div>
                   <div>
-                    <Label htmlFor="patient-phone-number">{t.phoneLabel || "Téléphone"}</Label>
+                    <Label htmlFor="phone">Téléphone</Label>
                     <Input
-                      id="patient-phone-number"
+                      id="phone"
                       type="tel"
                       placeholder="+230 5xxx xxxx"
-                      value={patientPhoneNumber}
-                      onChange={(e) => setPatientPhoneNumber(e.target.value)}
+                      value={state.phone}
+                      onChange={(e) => updateState({ phone: e.target.value })}
                     />
                   </div>
                 </div>
-                <div className="grid md:grid-cols-3 gap-6">
+
+                <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="patient-date-of-birth">{t.birthDateLabel || "Date de naissance"}</Label>
+                    <Label htmlFor="birthDate">Date de naissance</Label>
                     <Input
-                      id="patient-date-of-birth"
+                      id="birthDate"
                       type="date"
-                      value={patientDateOfBirth}
-                      onChange={(e) => setPatientDateOfBirth(e.target.value)}
+                      value={state.birthDate}
+                      onChange={(e) => updateState({ birthDate: e.target.value })}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="weight">{t.weightLabel || "Poids (kg)"}</Label>
-                    <Input id="weight" type="number" placeholder="70" />
-                  </div>
-                  <div>
-                    <Label htmlFor="height">{t.heightLabel || "Taille (cm)"}</Label>
-                    <Input id="height" type="number" placeholder="170" />
+                    <Label htmlFor="gender">Sexe</Label>
+                    <Select value={state.gender} onValueChange={(value) => updateState({ gender: value })}>
+                      <SelectTrigger id="gender">
+                        <SelectValue placeholder="Sélectionner le sexe" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="male">Masculin</SelectItem>
+                        <SelectItem value="female">Féminin</SelectItem>
+                        <SelectItem value="other">Autre</SelectItem>
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
+
                 <div>
-                  <Label htmlFor="patient-gender">{t.genderLabel || "Sexe"}</Label>
-                  <Select value={patientGender} onValueChange={setPatientGender}>
-                    <SelectTrigger id="patient-gender">
-                      <SelectValue placeholder={t.genderPlaceholder || "Sélectionner le sexe"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="male">{t.genderMale || "Masculin"}</SelectItem>
-                      <SelectItem value="female">{t.genderFemale || "Féminin"}</SelectItem>
-                      <SelectItem value="other">{t.genderOther || "Autre"}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label htmlFor="patient-address">{t.addressLabel || "Adresse"}</Label>
+                  <Label htmlFor="address">Adresse</Label>
                   <Textarea
-                    id="patient-address"
-                    placeholder={t.addressPlaceholder || "123 Rue Principale"}
-                    value={patientAddress}
-                    onChange={(e) => setPatientAddress(e.target.value)}
+                    id="address"
+                    placeholder="123 Rue Principale"
+                    value={state.address}
+                    onChange={(e) => updateState({ address: e.target.value })}
                   />
                 </div>
+
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="patient-city">{t.cityLabel || "Ville"}</Label>
+                    <Label htmlFor="city">Ville</Label>
                     <Input
-                      id="patient-city"
-                      placeholder={t.cityPlaceholder || "Port Louis"}
-                      value={patientCity}
-                      onChange={(e) => setPatientCity(e.target.value)}
+                      id="city"
+                      placeholder="Port Louis"
+                      value={state.city}
+                      onChange={(e) => updateState({ city: e.target.value })}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="patient-country">{t.countryLabel || "Pays"}</Label>
+                    <Label htmlFor="country">Pays</Label>
                     <Input
-                      id="patient-country"
-                      placeholder={t.countryPlaceholder || "Maurice"}
-                      value={patientCountry}
-                      onChange={(e) => setPatientCountry(e.target.value)}
+                      id="country"
+                      placeholder="Maurice"
+                      value={state.country}
+                      onChange={(e) => updateState({ country: e.target.value })}
                     />
                   </div>
                 </div>
+
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
-                    <Label htmlFor="patient-emergency-contact-name">
-                      {t.emergencyContactNameLabel || "Nom du contact d'urgence"}
-                    </Label>
+                    <Label htmlFor="emergencyName">Contact d'urgence - Nom</Label>
                     <Input
-                      id="patient-emergency-contact-name"
-                      placeholder={t.emergencyContactNamePlaceholder || "Jean Dupont"}
-                      value={patientEmergencyContactName}
-                      onChange={(e) => setPatientEmergencyContactName(e.target.value)}
+                      id="emergencyName"
+                      placeholder="Jean Dupont"
+                      value={state.emergencyName}
+                      onChange={(e) => updateState({ emergencyName: e.target.value })}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="patient-emergency-contact-phone">
-                      {t.emergencyContactPhoneLabel || "Téléphone du contact d'urgence"}
-                    </Label>
+                    <Label htmlFor="emergencyPhone">Contact d'urgence - Téléphone</Label>
                     <Input
-                      id="patient-emergency-contact-phone"
+                      id="emergencyPhone"
                       type="tel"
                       placeholder="+230 5xxx xxxx"
-                      value={patientEmergencyContactPhone}
-                      onChange={(e) => setPatientEmergencyContactPhone(e.target.value)}
+                      value={state.emergencyPhone}
+                      onChange={(e) => updateState({ emergencyPhone: e.target.value })}
                     />
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="medicalHistory">{t.medicalHistoryLabel || "Antécédents médicaux"}</Label>
-                  <Textarea id="medicalHistory" placeholder={`${t.medicalHistoryLabel || "Antécédents médicaux"}...`} />
-                </div>
-                <div>
-                  <Label>{t.currentTreatmentLabel || "Traitement en cours"}</Label>
-                  <RadioGroup defaultValue="no" className="flex items-center space-x-4 mt-2">
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="yes" id="treatment-yes" />
-                      <Label htmlFor="treatment-yes">{t.treatmentYes || "Oui"}</Label>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <RadioGroupItem value="no" id="treatment-no" />
-                      <Label htmlFor="treatment-no">{t.treatmentNo || "Non"}</Label>
-                    </div>
-                  </RadioGroup>
-                  <Textarea
-                    className="mt-2"
-                    placeholder={`${t.currentTreatmentLabel || "Traitement en cours"} (si oui)...`}
-                  />
-                </div>
+
                 <div className="mt-8 flex justify-center">
                   <Button
                     onClick={handleNextStep}
                     className="px-8 py-3 text-base"
-                    disabled={isLoading || !firstName || !lastName}
+                    disabled={state.isLoading || !state.firstName || !state.lastName}
                   >
-                    {isLoading && currentStep === 3 ? <Loader2 className="animate-spin mr-2" /> : null}
-                    {t.continueButton || "Continuer"}
+                    {state.isLoading ? <Loader2 className="animate-spin mr-2" /> : null}
+                    Continuer
                   </Button>
                 </div>
               </form>
@@ -888,22 +746,16 @@ export default function StartConsultationPage() {
           </Card>
         )}
 
-        {currentStep === 4 && (
+        {/* Étape 4: Paiement */}
+        {state.currentStep === 4 && (
           <Card>
             <CardHeader className="text-center">
-              <CardTitle className="text-2xl">{t.paymentStepTitle || "Paiement"}</CardTitle>
-              <CardDescription>{t.paymentStepSubtitle || "Finalisez votre inscription"}</CardDescription>
-              {userEmail && (
-                <p className="text-sm text-gray-600">
-                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
-                </p>
-              )}
+              <CardTitle className="text-2xl">Paiement</CardTitle>
+              <CardDescription>Finalisez votre inscription</CardDescription>
             </CardHeader>
             <CardContent className="max-w-md mx-auto">
               <div className="mb-6">
-                <h3 className="font-medium text-gray-900 mb-4">
-                  {t.paymentMethodsAcceptedTitle || "Modes de paiement acceptés"}
-                </h3>
+                <h3 className="font-medium text-gray-900 mb-4">Modes de paiement acceptés</h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex items-center justify-center p-3 border border-gray-200 rounded-lg text-sm">
                     <HeartPulse className="text-blue-600 mr-2" size={20} /> Visa
@@ -919,75 +771,90 @@ export default function StartConsultationPage() {
                   </div>
                 </div>
               </div>
+
               <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
                 <div>
-                  <Label htmlFor="cardNumber">{t.cardNumberLabel || "Numéro de carte"}</Label>
+                  <Label htmlFor="cardNumber">Numéro de carte</Label>
                   <Input id="cardNumber" placeholder="1234 5678 9012 3456" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="expiryDate">{t.expiryLabel || "Expiration"}</Label>
+                    <Label htmlFor="expiryDate">Expiration</Label>
                     <Input id="expiryDate" placeholder="MM/AA" />
                   </div>
                   <div>
-                    <Label htmlFor="cvv">{t.cvvLabel || "CVV"}</Label>
+                    <Label htmlFor="cvv">CVV</Label>
                     <Input id="cvv" placeholder="123" />
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="cardHolderName">{t.cardholderNameLabel || "Nom du titulaire"}</Label>
-                  <Input id="cardHolderName" placeholder={t.cardholderNameLabel || "Nom du titulaire"} />
+                  <Label htmlFor="cardHolderName">Nom du titulaire</Label>
+                  <Input id="cardHolderName" placeholder="Nom du titulaire" />
                 </div>
               </form>
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-medium text-gray-900">{t.selectedPlanLabel || "Plan sélectionné"}</span>
-                  <span className="font-bold text-blue-600">{getSelectedPlanInfo()}</span>
+
+              {state.selectedPlan && (
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-gray-900">Plan sélectionné</span>
+                    <span className="font-bold text-blue-600">
+                      {PRICING_OPTIONS.find(p => p.id === state.selectedPlan)?.title} - {PRICING_OPTIONS.find(p => p.id === state.selectedPlan)?.price}
+                    </span>
+                  </div>
                 </div>
-              </div>
+              )}
+
               <div className="mt-8 space-y-4">
                 <Button onClick={handleNextStep} className="w-full px-6 py-3 text-base font-medium">
-                  {isLoading && currentStep === 4 ? <Loader2 className="animate-spin mr-2" /> : null}
-                  {t.completeRegistrationButton || "Finaliser l'inscription"}
+                  {state.isLoading ? <Loader2 className="animate-spin mr-2" /> : null}
+                  Finaliser l'inscription
                 </Button>
                 <p className="text-xs text-gray-500 text-center flex items-center justify-center">
-                  <Lock size={12} className="mr-1" /> {t.securePaymentText || "Paiement sécurisé"}
+                  <Lock size={12} className="mr-1" /> Paiement sécurisé
                 </p>
               </div>
             </CardContent>
           </Card>
         )}
 
-        {currentStep === 5 && (
+        {/* Étape 5: Succès */}
+        {state.currentStep === 5 && (
           <Card>
             <CardHeader className="text-center">
               <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <Check className="text-green-600" size={32} />
               </div>
-              <CardTitle className="text-2xl">{t.registrationSuccessTitle || "Inscription réussie !"}</CardTitle>
-              <CardDescription>
-                {t.registrationSuccessMessage || "Votre compte a été créé avec succès."}
-              </CardDescription>
-              {userEmail && (
-                <p className="text-sm text-gray-600">
-                  {t.loggedInAs || "Connecté en tant que"} {userEmail}
-                </p>
-              )}
+              <CardTitle className="text-2xl">Inscription réussie !</CardTitle>
+              <CardDescription>Votre compte a été créé avec succès.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                {successDashboardLinks.map((link) => (
-                  <div key={link.titleKey} className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
-                    {link.icon}
-                    <h3 className="font-medium text-gray-900 text-sm">{t[link.titleKey] || link.titleKey}</h3>
-                    <p className="text-xs text-gray-600">{t[link.descKey] || link.descKey}</p>
-                  </div>
-                ))}
+                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
+                  <Users className="text-blue-600 text-xl mb-2 mx-auto" />
+                  <h3 className="font-medium text-gray-900 text-sm">Salle d'attente</h3>
+                  <p className="text-xs text-gray-600">Accédez à vos consultations</p>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
+                  <History className="text-blue-600 text-xl mb-2 mx-auto" />
+                  <h3 className="font-medium text-gray-900 text-sm">Historique</h3>
+                  <p className="text-xs text-gray-600">Consultez vos antécédents</p>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
+                  <UserMdIcon className="text-blue-600 text-xl mb-2 mx-auto" />
+                  <h3 className="font-medium text-gray-900 text-sm">Second avis</h3>
+                  <p className="text-xs text-gray-600">Demandez un avis expert</p>
+                </div>
+                <div className="text-center p-4 bg-blue-50 rounded-lg shadow-sm">
+                  <BotIcon className="text-blue-600 text-xl mb-2 mx-auto" />
+                  <h3 className="font-medium text-gray-900 text-sm">TiBot</h3>
+                  <p className="text-xs text-gray-600">Assistant médical IA</p>
+                </div>
               </div>
+              
               <div className="flex justify-center">
                 <Link href="/dashboard" passHref>
                   <Button className="px-8 py-3 text-base font-medium">
-                    {t.goToDashboardButton || "Aller au tableau de bord"}
+                    Aller au tableau de bord
                   </Button>
                 </Link>
               </div>
