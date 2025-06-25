@@ -29,7 +29,7 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-console.log("[StartConsultationPage] TOP LEVEL SCRIPT EXECUTION - Production Test")
+console.log("[StartConsultationPage] TOP LEVEL SCRIPT EXECUTION")
 
 const stepsConfig = [
   { id: 1, labelKey: "step1Label" as TranslationKey },
@@ -66,7 +66,7 @@ export default function StartConsultationPage() {
 
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
-  const [isCheckingSession, setIsCheckingSession] = useState(false) // Temporairement false par défaut
+  const [isCheckingSession, setIsCheckingSession] = useState(true) // Rétablir à true
 
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
@@ -121,81 +121,71 @@ export default function StartConsultationPage() {
     [supabase, createUserProfile],
   )
 
-  // useEffect(() => {
-  //   console.log(
-  //     "StartConsultationPage: useEffect for onAuthStateChange MOUNTED. Initial isCheckingSession:",
-  //     isCheckingSession,
-  //     "Initial currentStep:",
-  //     currentStep,
-  //   )
-
-  //   const {
-  //     data: { subscription },
-  //   } = supabase.auth.onAuthStateChange(async (event, session) => {
-  //     console.log(
-  //       "%cStartConsultationPage: [DEBUG] onAuthStateChange TRIGGERED",
-  //       "color: orange; font-weight: bold;",
-  //       "Event:",
-  //       event,
-  //       "Session:",
-  //       session ? `Exists (User ID: ${session.user.id})` : "Null",
-  //     )
-
-  //     if (session) {
-  //       console.log("StartConsultationPage: [DEBUG] Session DETECTED. User ID:", session.user.id)
-  //       setIsUserLoggedIn(true)
-  //       setUserEmail(session.user.email)
-
-  //       // Temporarily bypass profile and patient data checks for debugging page load
-  //       console.log("StartConsultationPage: [DEBUG] Bypassing ensureUserProfile and patient data check.")
-  //       console.log("StartConsultationPage: [DEBUG] Assuming if session, user might want to select plan (step 2).")
-  //       // Check if user already has patient data, if so, redirect to dashboard, otherwise step 2
-  //       // This is a simplified check, ideally you'd check if patient setup is complete
-  //       const { data: patientData } = await supabase
-  //         .from("patients")
-  //         .select("user_id")
-  //         .eq("user_id", session.user.id)
-  //         .maybeSingle()
-
-  //       if (patientData) {
-  //         console.log("StartConsultationPage: [DEBUG] Patient data found, redirecting to dashboard.")
-  //         router.push("/dashboard")
-  //       } else {
-  //         console.log("StartConsultationPage: [DEBUG] No patient data, setting currentStep to 2.")
-  //         setCurrentStep(2)
-  //       }
-  //     } else {
-  //       console.log("StartConsultationPage: [DEBUG] NO session detected. Event:", event)
-  //       setIsUserLoggedIn(false)
-  //       setUserEmail(undefined)
-  //       console.log("StartConsultationPage: [DEBUG] Setting currentStep to 1 (Auth/Login step).")
-  //       setCurrentStep(1)
-  //     }
-
-  //     console.log(
-  //       "%cStartConsultationPage: [DEBUG] ATTEMPTING TO SET isCheckingSession to false.",
-  //       "color: red; font-weight: bold;",
-  //     )
-  //     setIsCheckingSession(false)
-  //     console.log(
-  //       "%cStartConsultationPage: [DEBUG] SUCCESSFULLY SET isCheckingSession to false. Current step:",
-  //       currentStep,
-  //     )
-  //   })
-
-  //   return () => {
-  //     console.log(
-  //       "StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING (production log). Cleaning up listener.",
-  //     )
-  //     subscription.unsubscribe()
-  //   }
-  // }, [supabase, router, ensureUserProfile])
-
   useEffect(() => {
-    console.log("[StartConsultationPage] Basic useEffect running - Production Test")
-    setIsCheckingSession(false)
-    console.log("[StartConsultationPage] setIsCheckingSession(false) CALLED - Production Test")
-  }, [])
+    console.log(
+      "StartConsultationPage: useEffect for onAuthStateChange MOUNTED. Initial isCheckingSession:",
+      isCheckingSession,
+      "Initial currentStep:",
+      currentStep,
+    )
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(
+        "%cStartConsultationPage: onAuthStateChange TRIGGERED",
+        "color: blue; font-weight: bold;",
+        "Event:",
+        event,
+        "Session:",
+        session ? `Exists (User ID: ${session.user.id})` : "Null",
+      )
+
+      if (session) {
+        console.log("StartConsultationPage: Session DETECTED. User ID:", session.user.id, "Email:", session.user.email)
+        setIsUserLoggedIn(true)
+        setUserEmail(session.user.email)
+
+        await ensureUserProfile(session.user.id, session.user.email || "")
+        console.log("StartConsultationPage: User profile ensured for", session.user.id)
+
+        try {
+          const { data: patientData, error: patientError } = await supabase
+            .from("patients")
+            .select("user_id")
+            .eq("user_id", session.user.id)
+            .maybeSingle()
+
+          if (patientError) {
+            console.error("StartConsultationPage: Error checking patient data:", patientError)
+            setCurrentStep(2) // Aller à la sélection de plan même en cas d'erreur ici
+          } else if (patientData) {
+            console.log("StartConsultationPage: Patient data FOUND. Redirecting to /dashboard.")
+            router.push("/dashboard")
+          } else {
+            console.log("StartConsultationPage: NO patient data. Setting currentStep to 2.")
+            setCurrentStep(2)
+          }
+        } catch (e) {
+          console.error("StartConsultationPage: CATCH block for patient data check:", e)
+          setCurrentStep(2) // Fallback
+        }
+      } else {
+        console.log("StartConsultationPage: NO session detected. Event:", event)
+        setIsUserLoggedIn(false)
+        setUserEmail(undefined)
+        console.log("StartConsultationPage: Setting currentStep to 1 (Auth/Login step).")
+        setCurrentStep(1)
+      }
+      console.log("%cStartConsultationPage: Setting isCheckingSession to false.", "color: green; font-weight: bold;")
+      setIsCheckingSession(false)
+    })
+
+    return () => {
+      console.log("StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING. Cleaning up listener.")
+      subscription.unsubscribe()
+    }
+  }, [supabase, router, ensureUserProfile]) // ensureUserProfile est rétabli ici
 
   const pricingOptions: PricingOption[] = [
     {
@@ -243,7 +233,7 @@ export default function StartConsultationPage() {
     } else if (initialPlan) {
       console.warn("StartConsultationPage: Initial plan from URL not found in pricingOptions:", initialPlan)
     }
-  }, [initialPlan, t])
+  }, [initialPlan, t]) // pricingOptions dépend de t, donc t doit être dans les deps
 
   const handleEmailAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -252,9 +242,7 @@ export default function StartConsultationPage() {
     setSignupSuccessMessage(null)
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
-    console.log(
-      `StartConsultationPage: handleEmailAuth called (production log). View: ${authView}, Email: ${email.substring(0, 3)}...`,
-    )
+    console.log(`StartConsultationPage: handleEmailAuth called. View: ${authView}, Email: ${email.substring(0, 3)}...`)
 
     try {
       if (authView === "signup") {
@@ -266,7 +254,7 @@ export default function StartConsultationPage() {
           },
         })
         if (error) {
-          console.error("StartConsultationPage: Signup error (production log):", error)
+          console.error("StartConsultationPage: Signup error:", error)
           setAuthError(
             error.message.includes("User already registered")
               ? "Un compte avec cet email existe déjà. Essayez de vous connecter."
@@ -283,10 +271,10 @@ export default function StartConsultationPage() {
         }
       } else {
         // Login
-        console.log("StartConsultationPage: Attempting signInWithPassword (production log)...")
+        console.log("StartConsultationPage: Attempting signInWithPassword...")
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) {
-          console.error("StartConsultationPage: Login error (production log):", error.message, error)
+          console.error("StartConsultationPage: Login error:", error.message, error)
           setAuthError(
             error.message.includes("Email not confirmed")
               ? "Votre e-mail n'a pas été confirmé. Veuillez vérifier votre boîte de réception et cliquer sur le lien de confirmation."
@@ -296,19 +284,20 @@ export default function StartConsultationPage() {
           )
         } else {
           console.log(
-            "StartConsultationPage: Login successful via signInWithPassword (production log). Session data:",
+            "StartConsultationPage: Login successful via signInWithPassword. Session data:",
             data.session ? "Exists" : "Null",
             "User data:",
             data.user ? "Exists" : "Null",
           )
+          // onAuthStateChange devrait maintenant prendre le relais.
         }
       }
     } catch (error: any) {
-      console.error(`StartConsultationPage: Unhandled error during ${authView} (production log):`, error)
+      console.error(`StartConsultationPage: Unhandled error during ${authView}:`, error)
       setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion et réessayez.")
     } finally {
       setIsLoading(false)
-      console.log("StartConsultationPage: handleEmailAuth finished (production log). isLoading set to false.")
+      console.log("StartConsultationPage: handleEmailAuth finished. isLoading set to false.")
     }
   }
 
@@ -465,12 +454,10 @@ export default function StartConsultationPage() {
     return authView === "login" ? "Connexion" : "Inscription"
   }
 
-  console.log(`[StartConsultationPage] RENDERING PAGE. isCheckingSession: ${isCheckingSession} - Production Test`)
+  console.log(`[StartConsultationPage] RENDERING PAGE. isCheckingSession: ${isCheckingSession}`)
 
   if (isCheckingSession) {
-    console.log(
-      "StartConsultationPage: RENDERING - isCheckingSession is TRUE (production log). Displaying global loader.",
-    )
+    console.log("StartConsultationPage: RENDERING - isCheckingSession is TRUE. Displaying global loader.")
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
@@ -480,7 +467,7 @@ export default function StartConsultationPage() {
   }
 
   console.log(
-    `%cStartConsultationPage: [DEBUG] RENDERING. isCheckingSession: ${isCheckingSession}, currentStep: ${currentStep}`,
+    `%cStartConsultationPage: RENDERING FULL PAGE. isCheckingSession: ${isCheckingSession}, currentStep: ${currentStep}`,
     "color: purple; font-weight: bold;",
   )
 
