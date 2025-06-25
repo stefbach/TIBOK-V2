@@ -270,7 +270,9 @@ export default function StartConsultationPage() {
           )
         } else if (data.user && !data.session) {
           console.log("StartConsultationPage: Signup successful, email confirmation pending.")
-          setSignupSuccessMessage("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
+          setSignupSuccessMessage(
+            "Inscription réussie ! Veuillez consulter votre boîte de réception pour confirmer votre adresse e-mail avant de vous connecter.",
+          )
         } else {
           console.log("StartConsultationPage: Signup successful, user session created (auto-confirm likely on).")
           // onAuthStateChange will handle next steps
@@ -280,11 +282,12 @@ export default function StartConsultationPage() {
         console.log("StartConsultationPage: Attempting signInWithPassword (production log)...")
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) {
-          console.error("StartConsultationPage: Login error (production log):", error)
           setAuthError(
-            error.message.includes("Invalid login credentials")
-              ? "Email ou mot de passe incorrect."
-              : `Erreur de connexion: ${error.message}`,
+            error.message.includes("Email not confirmed")
+              ? "Votre e-mail n'a pas été confirmé. Veuillez vérifier votre boîte de réception et cliquer sur le lien de confirmation."
+              : error.message.includes("Invalid login credentials")
+                ? "Email ou mot de passe incorrect."
+                : `Erreur de connexion: ${error.message}`,
           )
         } else {
           console.log(
