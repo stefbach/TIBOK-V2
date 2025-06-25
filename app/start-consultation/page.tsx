@@ -1,11 +1,6 @@
 "use client"
 
 import React, { useState, useEffect, useCallback } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
-import { getSupabaseBrowserClient } from "@/lib/supabase/client"
-import dynamic from "next/dynamic"
-
-// Composants UI imports...
 import {
   HeartPulse,
   Check,
@@ -30,18 +25,11 @@ import LanguageSwitcher from "@/components/language-switcher"
 import { useLanguage } from "@/contexts/language-context"
 import { translations, type TranslationKey } from "@/lib/translations"
 import Link from "next/link"
+import { useSearchParams, useRouter } from "next/navigation"
+import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
-// Dynamic import pour éviter les problèmes d'hydratation
-const DynamicStartConsultation = dynamic(() => Promise.resolve(StartConsultationContent), {
-  ssr: false,
-  loading: () => (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
-      <p className="ml-2">Chargement...</p>
-    </div>
-  )
-})
+console.log("[StartConsultationPage] TOP LEVEL SCRIPT EXECUTION - Debugging Spin")
 
 const stepsConfig = [
   { id: 1, labelKey: "step1Label" as TranslationKey },
@@ -61,53 +49,30 @@ interface PricingOption {
 
 type AuthView = "signup" | "login"
 
-// Composant principal avec protection d'hydratation
 export default function StartConsultationPage() {
-  const [isMounted, setIsMounted] = useState(false)
-
-  useEffect(() => {
-    setIsMounted(true)
-  }, [])
-
-  if (!isMounted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
-        <p className="ml-2">Initialisation...</p>
-      </div>
-    )
-  }
-
-  return <DynamicStartConsultation />
-}
-
-// Contenu principal séparé
-function StartConsultationContent() {
   const supabase = getSupabaseBrowserClient()
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialPlan = searchParams.get("plan")
+
+  const [currentStep, setCurrentStep] = useState(1)
   const { language } = useLanguage()
   const t = translations[language]
 
-  // États
-  const [currentStep, setCurrentStep] = useState(1)
-  const [isInitialized, setIsInitialized] = useState(false)
-  const [isCheckingSession, setIsCheckingSession] = useState(true)
-  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
-  const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
-  const [isLoading, setIsLoading] = useState(false)
-  const [authError, setAuthError] = useState<string | null>(null)
-  const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
-
-  // Auth états
-  const [authView, setAuthView] = useState<AuthView>("login")
   const [loginEmail, setLoginEmail] = useState("")
   const [loginPassword, setLoginPassword] = useState("")
   const [signupEmail, setSignupEmail] = useState("")
   const [signupPassword, setSignupPassword] = useState("")
 
-  // Patient états
+  const [authView, setAuthView] = useState<AuthView>("login")
+  const [isLoading, setIsLoading] = useState(false)
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
+
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
+  const [userEmail, setUserEmail] = useState<string | undefined>(undefined)
+  const [signupSuccessMessage, setSignupSuccessMessage] = useState<string | null>(null)
+
   const [firstName, setFirstName] = useState("")
   const [lastName, setLastName] = useState("")
   const [patientDateOfBirth, setPatientDateOfBirth] = useState("")
@@ -119,9 +84,112 @@ function StartConsultationContent() {
   const [patientEmergencyContactName, setPatientEmergencyContactName] = useState("")
   const [patientEmergencyContactPhone, setPatientEmergencyContactPhone] = useState("")
 
-  // Pricing états
-  const [selectedPricing, setSelectedPricing] = useState<string | null>(null)
+  const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingError, setPricingError] = useState<string | null>(null)
+
+  const createUserProfile = useCallback(
+    async (userId: string, email: string) => {
+      console.log("[DEBUG_SPIN] createUserProfile START for userId:", userId)
+      try {
+        const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
+        if (error) {
+          console.error("[DEBUG_SPIN] createUserProfile ERROR:", error)
+        } else {
+          console.log("[DEBUG_SPIN] createUserProfile SUCCESS for userId:", userId)
+        }
+      } catch (error) {
+        console.error("[DEBUG_SPIN] createUserProfile EXCEPTION:", error)
+      }
+      console.log("[DEBUG_SPIN] createUserProfile END for userId:", userId)
+    },
+    [supabase],
+  )
+
+  const ensureUserProfile = useCallback(
+    async (userId: string, email: string) => {
+      console.log("[DEBUG_SPIN] ensureUserProfile START for userId:", userId)
+      try {
+        const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
+        if (error && error.code === "PGRST116") {
+          console.log("[DEBUG_SPIN] ensureUserProfile: Profile not found, creating...")
+          await createUserProfile(userId, email)
+        } else if (error) {
+          console.error("[DEBUG_SPIN] ensureUserProfile: Error checking profile:", error)
+        } else {
+          console.log("[DEBUG_SPIN] ensureUserProfile: Profile exists.")
+        }
+      } catch (error) {
+        console.error("[DEBUG_SPIN] ensureUserProfile: EXCEPTION:", error)
+      }
+      console.log("[DEBUG_SPIN] ensureUserProfile END for userId:", userId)
+    },
+    [supabase, createUserProfile],
+  )
+
+  useEffect(() => {
+    console.log("[DEBUG_SPIN] onAuthStateChange useEffect MOUNTED. isCheckingSession:", isCheckingSession)
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log(`%c[DEBUG_SPIN] onAuthStateChange FIRED. Event: ${event}`, "color: orange; font-weight: bold;")
+      if (session) {
+        console.log(`%c[DEBUG_SPIN] Session EXISTS. User ID: ${session.user.id}`, "color: green;")
+        setIsUserLoggedIn(true)
+        setUserEmail(session.user.email)
+
+        console.log("[DEBUG_SPIN] CALLING ensureUserProfile...")
+        try {
+          await ensureUserProfile(session.user.id, session.user.email || "")
+          console.log("[DEBUG_SPIN] ensureUserProfile COMPLETED.")
+        } catch (e) {
+          console.error("[DEBUG_SPIN] ensureUserProfile FAILED in onAuthStateChange:", e)
+        }
+
+        console.log("[DEBUG_SPIN] CHECKING patient data...")
+        try {
+          const { data: patientData, error: patientError } = await supabase
+            .from("patients")
+            .select("user_id")
+            .eq("user_id", session.user.id)
+            .maybeSingle()
+
+          if (patientError) {
+            console.error("[DEBUG_SPIN] Error checking patient data:", patientError)
+            setCurrentStep(2)
+          } else if (patientData) {
+            console.log("[DEBUG_SPIN] Patient data FOUND. Redirecting to /dashboard.")
+            router.push("/dashboard")
+          } else {
+            console.log("[DEBUG_SPIN] NO patient data. Setting currentStep to 2.")
+            setCurrentStep(2)
+          }
+          console.log("[DEBUG_SPIN] Patient data check COMPLETED.")
+        } catch (e) {
+          console.error("[DEBUG_SPIN] CATCH block for patient data check:", e)
+          setCurrentStep(2)
+        }
+      } else {
+        console.log(`%c[DEBUG_SPIN] Session is NULL. Event: ${event}`, "color: red;")
+        setIsUserLoggedIn(false)
+        setUserEmail(undefined)
+        setCurrentStep(1)
+      }
+
+      console.log(
+        `%c[DEBUG_SPIN] ATTEMPTING to set isCheckingSession to false. Current step: ${currentStep}`,
+        "color: blue; font-weight: bold;",
+      )
+      setIsCheckingSession(false)
+      console.log(`%c[DEBUG_SPIN] SUCCESSFULLY set isCheckingSession to false.`, "color: blue; font-weight: bold;")
+    })
+
+    return () => {
+      console.log("[DEBUG_SPIN] onAuthStateChange useEffect UNMOUNTING.")
+      subscription.unsubscribe()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supabase, router]) // J'ai enlevé ensureUserProfile des dépendances pour l'instant pour simplifier, on le remettra si besoin.
 
   const pricingOptions: PricingOption[] = [
     {
@@ -160,161 +228,21 @@ function StartConsultationContent() {
     },
   ]
 
-  // Configuration du plan initial
+  const [selectedPricing, setSelectedPricing] = useState<string | null>(null)
+
   useEffect(() => {
     if (initialPlan && pricingOptions.some((p) => p.id === initialPlan)) {
       setSelectedPricing(initialPlan)
+    } else if (initialPlan) {
+      console.warn("StartConsultationPage: Initial plan from URL not found in pricingOptions:", initialPlan)
     }
   }, [initialPlan])
 
-  // Fonctions utilitaires
-  const createUserProfile = useCallback(
-    async (userId: string, email: string) => {
-      try {
-        const { error } = await supabase.from("profiles").insert([{ id: userId, full_name: "" }])
-        if (error) {
-          console.error("Erreur création profil:", error)
-          throw error
-        }
-      } catch (error) {
-        console.error("Exception création profil:", error)
-        throw error
-      }
-    },
-    [supabase],
-  )
-
-  const ensureUserProfile = useCallback(
-    async (userId: string, email: string) => {
-      try {
-        const { data, error } = await supabase.from("profiles").select("id").eq("id", userId).single()
-        if (error && error.code === "PGRST116") {
-          await createUserProfile(userId, email)
-        } else if (error) {
-          throw error
-        }
-      } catch (error) {
-        console.error("Erreur vérification profil:", error)
-        throw error
-      }
-    },
-    [supabase, createUserProfile],
-  )
-
-  // Initialisation sécurisée
-  useEffect(() => {
-    let mounted = true
-    let authSubscription: any
-
-    const initializeAuth = async () => {
-      try {
-        // Vérifier la session actuelle
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-        
-        if (sessionError) {
-          console.error("Erreur session:", sessionError)
-          if (mounted) {
-            setIsCheckingSession(false)
-            setCurrentStep(1)
-          }
-          return
-        }
-
-        if (session?.user && mounted) {
-          setIsUserLoggedIn(true)
-          setUserEmail(session.user.email)
-
-          try {
-            await ensureUserProfile(session.user.id, session.user.email || "")
-            
-            // Vérifier les données patient
-            const { data: patientData, error: patientError } = await supabase
-              .from("patients")
-              .select("user_id")
-              .eq("user_id", session.user.id)
-              .maybeSingle()
-
-            if (mounted) {
-              if (patientError) {
-                console.error("Erreur données patient:", patientError)
-                setCurrentStep(2)
-              } else if (patientData) {
-                router.push("/dashboard")
-                return
-              } else {
-                setCurrentStep(2)
-              }
-            }
-          } catch (error) {
-            console.error("Erreur traitement utilisateur:", error)
-            if (mounted) setCurrentStep(2)
-          }
-        } else if (mounted) {
-          setIsUserLoggedIn(false)
-          setUserEmail(undefined)
-          setCurrentStep(1)
-        }
-
-        // Configuration du listener d'auth
-        if (mounted) {
-          authSubscription = supabase.auth.onAuthStateChange(async (event, session) => {
-            if (!mounted) return
-
-            try {
-              if (session?.user) {
-                setIsUserLoggedIn(true)
-                setUserEmail(session.user.email)
-                await ensureUserProfile(session.user.id, session.user.email || "")
-                
-                const { data: patientData } = await supabase
-                  .from("patients")
-                  .select("user_id")
-                  .eq("user_id", session.user.id)
-                  .maybeSingle()
-
-                if (patientData) {
-                  router.push("/dashboard")
-                } else {
-                  setCurrentStep(2)
-                }
-              } else {
-                setIsUserLoggedIn(false)
-                setUserEmail(undefined)
-                setCurrentStep(1)
-              }
-            } catch (error) {
-              console.error("Erreur auth change:", error)
-            }
-          })
-        }
-
-      } catch (error) {
-        console.error("Erreur initialisation auth:", error)
-      } finally {
-        if (mounted) {
-          setIsCheckingSession(false)
-          setIsInitialized(true)
-        }
-      }
-    }
-
-    initializeAuth()
-
-    return () => {
-      mounted = false
-      if (authSubscription?.data?.subscription) {
-        authSubscription.data.subscription.unsubscribe()
-      }
-    }
-  }, [supabase, router, ensureUserProfile])
-
-  // Gestionnaires d'événements
   const handleEmailAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
     setAuthError(null)
     setSignupSuccessMessage(null)
-    
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
 
@@ -327,7 +255,6 @@ function StartConsultationContent() {
             emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
           },
         })
-        
         if (error) {
           setAuthError(
             error.message.includes("User already registered")
@@ -370,13 +297,13 @@ function StartConsultationContent() {
         setAuthError(t.fillRequiredFieldsError || "Veuillez remplir le prénom et le nom.")
         return
       }
-      
       setIsLoading(true)
       setAuthError(null)
-      
       try {
-        const { data: { user }, error: userError } = await supabase.auth.getUser()
-        if (userError || !user) {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser()
+        if (!user) {
           setAuthError("Utilisateur non trouvé. Veuillez vous reconnecter.")
           setCurrentStep(1)
           return
@@ -396,8 +323,8 @@ function StartConsultationContent() {
           emergency_contact_name: patientEmergencyContactName || null,
           emergency_contact_phone: patientEmergencyContactPhone || null,
         }
-        
         const { error: patientError } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
+
         if (patientError) {
           setAuthError(`Erreur lors de la sauvegarde des informations patient: ${patientError.message}`)
           return
@@ -426,24 +353,6 @@ function StartConsultationContent() {
     } else if (currentStep === 4) setCurrentStep(5)
   }
 
-  const handleSelectPricing = (id: string) => {
-    setSelectedPricing(id)
-    if (pricingError) setPricingError(null)
-  }
-
-  const getSelectedPlanInfo = () => {
-    if (!selectedPricing) return ""
-    const plan = pricingOptions.find((p) => p.id === selectedPricing)
-    if (!plan) return ""
-    return `${t[plan.titleKey]} - ${plan.price}${plan.descKey !== "pricingPayPerUseLocalDesc" && plan.descKey !== "pricingPayPerUseTouristDesc" ? t[plan.descKey] : ""}`
-  }
-
-  const getStep1Label = () => {
-    if (isUserLoggedIn) return t.step1Label || "Authentification"
-    return authView === "login" ? "Connexion" : "Inscription"
-  }
-
-  // Features et liens pour les étapes 4 et 5
   const secondOpinionFeatures = [
     {
       icon: <Search className="text-blue-600 text-xl mb-2" />,
@@ -485,8 +394,27 @@ function StartConsultationContent() {
     },
   ]
 
-  // Affichage du loader pendant la vérification
-  if (isCheckingSession || !isInitialized) {
+  const handleSelectPricing = (id: string) => {
+    setSelectedPricing(id)
+    if (pricingError) setPricingError(null)
+  }
+
+  const getSelectedPlanInfo = () => {
+    if (!selectedPricing) return ""
+    const plan = pricingOptions.find((p) => p.id === selectedPricing)
+    if (!plan) return ""
+    return `${t[plan.titleKey]} - ${plan.price}${plan.descKey !== "pricingPayPerUseLocalDesc" && plan.descKey !== "pricingPayPerUseTouristDesc" ? t[plan.descKey] : ""}`
+  }
+
+  const getStep1Label = () => {
+    if (isUserLoggedIn) return t.step1Label || "Authentification"
+    return authView === "login" ? "Connexion" : "Inscription"
+  }
+
+  console.log(`[DEBUG_SPIN] Page RENDERING. isCheckingSession: ${isCheckingSession}, currentStep: ${currentStep}`)
+
+  if (isCheckingSession) {
+    console.log("[DEBUG_SPIN] RENDERING LOADER because isCheckingSession is TRUE")
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
@@ -494,6 +422,8 @@ function StartConsultationContent() {
       </div>
     )
   }
+
+  console.log(`[DEBUG_SPIN] RENDERING MAIN CONTENT. currentStep: ${currentStep}`)
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -545,7 +475,6 @@ function StartConsultationContent() {
           </div>
         )}
 
-        {/* Étape 1: Authentification */}
         {currentStep === 1 && (
           <Card>
             <CardHeader className="text-center">
@@ -665,7 +594,6 @@ function StartConsultationContent() {
           </Card>
         )}
 
-        {/* Étape 2: Sélection du tarif */}
         {currentStep === 2 && (
           <Card>
             <CardHeader className="text-center">
@@ -719,7 +647,6 @@ function StartConsultationContent() {
                   </div>
                 ))}
               </div>
-              
               <div className="border-t pt-8">
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 text-center sm:text-left">
                   {t.secondOpinionServiceTitle || "Service de second avis médical"}
@@ -752,7 +679,6 @@ function StartConsultationContent() {
                   </div>
                 </div>
               </div>
-              
               <div className="mt-8 flex justify-center">
                 <Button
                   onClick={handleNextStep}
@@ -773,7 +699,6 @@ function StartConsultationContent() {
           </Card>
         )}
 
-        {/* Étape 3: Informations patient */}
         {currentStep === 3 && (
           <Card>
             <CardHeader className="text-center">
@@ -818,7 +743,6 @@ function StartConsultationContent() {
                     />
                   </div>
                 </div>
-                
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="email-patient">{t.emailLabel || "Email"}</Label>
@@ -842,7 +766,6 @@ function StartConsultationContent() {
                     />
                   </div>
                 </div>
-                
                 <div className="grid md:grid-cols-3 gap-6">
                   <div>
                     <Label htmlFor="patient-date-of-birth">{t.birthDateLabel || "Date de naissance"}</Label>
@@ -862,7 +785,6 @@ function StartConsultationContent() {
                     <Input id="height" type="number" placeholder="170" />
                   </div>
                 </div>
-                
                 <div>
                   <Label htmlFor="patient-gender">{t.genderLabel || "Sexe"}</Label>
                   <Select value={patientGender} onValueChange={setPatientGender}>
@@ -876,7 +798,6 @@ function StartConsultationContent() {
                     </SelectContent>
                   </Select>
                 </div>
-                
                 <div>
                   <Label htmlFor="patient-address">{t.addressLabel || "Adresse"}</Label>
                   <Textarea
@@ -886,7 +807,6 @@ function StartConsultationContent() {
                     onChange={(e) => setPatientAddress(e.target.value)}
                   />
                 </div>
-                
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="patient-city">{t.cityLabel || "Ville"}</Label>
@@ -907,7 +827,6 @@ function StartConsultationContent() {
                     />
                   </div>
                 </div>
-                
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="patient-emergency-contact-name">
@@ -933,12 +852,10 @@ function StartConsultationContent() {
                     />
                   </div>
                 </div>
-                
                 <div>
                   <Label htmlFor="medicalHistory">{t.medicalHistoryLabel || "Antécédents médicaux"}</Label>
                   <Textarea id="medicalHistory" placeholder={`${t.medicalHistoryLabel || "Antécédents médicaux"}...`} />
                 </div>
-                
                 <div>
                   <Label>{t.currentTreatmentLabel || "Traitement en cours"}</Label>
                   <RadioGroup defaultValue="no" className="flex items-center space-x-4 mt-2">
@@ -956,7 +873,6 @@ function StartConsultationContent() {
                     placeholder={`${t.currentTreatmentLabel || "Traitement en cours"} (si oui)...`}
                   />
                 </div>
-                
                 <div className="mt-8 flex justify-center">
                   <Button
                     onClick={handleNextStep}
@@ -972,7 +888,6 @@ function StartConsultationContent() {
           </Card>
         )}
 
-        {/* Étape 4: Paiement */}
         {currentStep === 4 && (
           <Card>
             <CardHeader className="text-center">
@@ -1004,7 +919,6 @@ function StartConsultationContent() {
                   </div>
                 </div>
               </div>
-              
               <form className="space-y-4" onSubmit={(e) => e.preventDefault()}>
                 <div>
                   <Label htmlFor="cardNumber">{t.cardNumberLabel || "Numéro de carte"}</Label>
@@ -1025,14 +939,12 @@ function StartConsultationContent() {
                   <Input id="cardHolderName" placeholder={t.cardholderNameLabel || "Nom du titulaire"} />
                 </div>
               </form>
-              
               <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                 <div className="flex items-center justify-between text-sm">
                   <span className="font-medium text-gray-900">{t.selectedPlanLabel || "Plan sélectionné"}</span>
                   <span className="font-bold text-blue-600">{getSelectedPlanInfo()}</span>
                 </div>
               </div>
-              
               <div className="mt-8 space-y-4">
                 <Button onClick={handleNextStep} className="w-full px-6 py-3 text-base font-medium">
                   {isLoading && currentStep === 4 ? <Loader2 className="animate-spin mr-2" /> : null}
@@ -1046,7 +958,6 @@ function StartConsultationContent() {
           </Card>
         )}
 
-        {/* Étape 5: Succès */}
         {currentStep === 5 && (
           <Card>
             <CardHeader className="text-center">
