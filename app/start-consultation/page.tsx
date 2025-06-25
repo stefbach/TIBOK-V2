@@ -48,7 +48,7 @@ interface PricingOption {
 type AuthView = "signup" | "login"
 
 export default function StartConsultationPage() {
-  const supabase = getSupabaseBrowserClient()
+  const supabase = getSupabaseBrowserClient() // Potentiel point de falha si env vars sont mauvaises
   const router = useRouter()
   const searchParams = useSearchParams()
   const initialPlan = searchParams.get("plan")
@@ -64,7 +64,7 @@ export default function StartConsultationPage() {
 
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
-  const [isCheckingSession, setIsCheckingSession] = useState(true) // Initial check state
+  const [isCheckingSession, setIsCheckingSession] = useState(true)
 
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
@@ -126,7 +126,7 @@ export default function StartConsultationPage() {
       "Initial currentStep:",
       currentStep,
     )
-    // setIsCheckingSession(true); // Already true by default from useState
+    // setIsCheckingSession(true); // Déjà true par défaut
 
     const {
       data: { subscription },
@@ -145,61 +145,54 @@ export default function StartConsultationPage() {
         setIsUserLoggedIn(true)
         setUserEmail(session.user.email)
 
-        console.log("StartConsultationPage: Ensuring user profile for", session.user.id)
-        await ensureUserProfile(session.user.id, session.user.email || "")
-        console.log("StartConsultationPage: User profile ensured for", session.user.id)
+        // ... (logique ensureUserProfile et vérification patientData) ...
+        // Cette partie est cruciale. Si elle boucle ou échoue, ça peut causer des problèmes.
+        // Vérifiez les logs pour cette section en production.
 
-        console.log("StartConsultationPage: Checking for existing patient data for user", session.user.id)
-        const { data: patientData, error: patientError } = await supabase
-          .from("patients")
-          .select("user_id") // You might want to select more if needed later
-          .eq("user_id", session.user.id)
-          .maybeSingle()
+        // Exemple simplifié de la logique de patientData pour le débogage:
+        try {
+          const { data: patientData, error: patientError } = await supabase
+            .from("patients")
+            .select("user_id")
+            .eq("user_id", session.user.id)
+            .maybeSingle()
 
-        if (patientError) {
-          console.error("StartConsultationPage: Error checking patient data:", patientError)
-          setCurrentStep((prevStep) => {
-            const newStep = prevStep === 1 ? 2 : prevStep
-            console.log(
-              `StartConsultationPage: Patient data check ERROR. Prev step: ${prevStep}. Setting currentStep to ${newStep}`,
-            )
-            return newStep
-          })
-        } else if (patientData) {
-          console.log(
-            "StartConsultationPage: Patient data FOUND for user",
-            session.user.id,
-            ". Redirecting to /dashboard.",
-          )
-          router.push("/dashboard")
-          // No need to set currentStep here as we are redirecting
-        } else {
-          console.log("StartConsultationPage: NO patient data found for user", session.user.id, ". User is logged in.")
-          setCurrentStep((prevStep) => {
-            const newStep = prevStep === 1 ? 2 : prevStep
-            console.log(
-              `StartConsultationPage: NO patient data. Prev step: ${prevStep}. Setting currentStep to ${newStep} (Plan Selection).`,
-            )
-            return newStep
-          })
+          if (patientError) {
+            console.error("StartConsultationPage: Error checking patient data (production log):", patientError)
+            setCurrentStep(2) // Aller à la sélection de plan même en cas d'erreur ici
+          } else if (patientData) {
+            console.log("StartConsultationPage: Patient data FOUND (production log). Redirecting to /dashboard.")
+            router.push("/dashboard")
+          } else {
+            console.log("StartConsultationPage: NO patient data (production log). Setting currentStep to 2.")
+            setCurrentStep(2)
+          }
+        } catch (e) {
+          console.error("StartConsultationPage: CATCH block for patient data check (production log):", e)
+          setCurrentStep(2) // Fallback
         }
       } else {
         // No session
-        console.log("StartConsultationPage: NO session detected. Event:", event)
+        console.log("StartConsultationPage: NO session detected (production log). Event:", event)
         setIsUserLoggedIn(false)
         setUserEmail(undefined)
-        console.log("StartConsultationPage: Setting currentStep to 1 (Auth/Login step).")
+        console.log("StartConsultationPage: Setting currentStep to 1 (Auth/Login step) (production log).")
         setCurrentStep(1)
       }
-      console.log("%cStartConsultationPage: Setting isCheckingSession to false.", "color: green; font-weight: bold;")
+      console.log(
+        "%cStartConsultationPage: Setting isCheckingSession to false (production log).",
+        "color: green; font-weight: bold;",
+      )
       setIsCheckingSession(false)
     })
 
     return () => {
-      console.log("StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING. Cleaning up listener.")
+      console.log(
+        "StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING (production log). Cleaning up listener.",
+      )
       subscription.unsubscribe()
     }
-  }, [supabase, ensureUserProfile, router]) // Dependencies for the auth listener effect
+  }, [supabase, router]) // Simplifié les dépendances pour le test, ensureUserProfile a été retiré temporairement pour voir si c'est une source de boucle. Ajoutez-le à nouveau après.
 
   const pricingOptions: PricingOption[] = [
     {
@@ -257,7 +250,9 @@ export default function StartConsultationPage() {
     setSignupSuccessMessage(null)
     const email = authView === "signup" ? signupEmail : loginEmail
     const password = authView === "signup" ? signupPassword : loginPassword
-    console.log(`StartConsultationPage: handleEmailAuth called. View: ${authView}, Email: ${email}`)
+    console.log(
+      `StartConsultationPage: handleEmailAuth called (production log). View: ${authView}, Email: ${email.substring(0, 3)}...`,
+    ) // Ne pas logger le mot de passe
 
     try {
       if (authView === "signup") {
@@ -267,7 +262,7 @@ export default function StartConsultationPage() {
           options: { emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation` },
         })
         if (error) {
-          console.error("StartConsultationPage: Signup error:", error)
+          console.error("StartConsultationPage: Signup error (production log):", error)
           setAuthError(
             error.message.includes("User already registered")
               ? "Un compte avec cet email existe déjà. Essayez de vous connecter."
@@ -282,25 +277,33 @@ export default function StartConsultationPage() {
         }
       } else {
         // Login
+        console.log("StartConsultationPage: Attempting signInWithPassword (production log)...")
         const { data, error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) {
-          console.error("StartConsultationPage: Login error:", error)
+          console.error("StartConsultationPage: Login error (production log):", error)
           setAuthError(
             error.message.includes("Invalid login credentials")
               ? "Email ou mot de passe incorrect."
               : `Erreur de connexion: ${error.message}`,
           )
         } else {
-          console.log("StartConsultationPage: Login successful.")
-          // onAuthStateChange will handle next steps (like moving to step 2 or redirecting)
+          console.log(
+            "StartConsultationPage: Login successful via signInWithPassword (production log). Session data:",
+            data.session ? "Exists" : "Null",
+            "User data:",
+            data.user ? "Exists" : "Null",
+          )
+          // onAuthStateChange devrait maintenant prendre le relais.
+          // Si la session est bien créée ici, mais que onAuthStateChange ne la voit pas ou boucle,
+          // le problème est dans onAuthStateChange ou la communication avec Supabase après connexion.
         }
       }
     } catch (error: any) {
-      console.error(`StartConsultationPage: Unhandled error during ${authView}:`, error)
+      console.error(`StartConsultationPage: Unhandled error during ${authView} (production log):`, error)
       setAuthError("Une erreur réseau est survenue. Vérifiez votre connexion et réessayez.")
     } finally {
       setIsLoading(false)
-      console.log("StartConsultationPage: handleEmailAuth finished. isLoading set to false.")
+      console.log("StartConsultationPage: handleEmailAuth finished (production log). isLoading set to false.")
     }
   }
 
@@ -466,7 +469,9 @@ export default function StartConsultationPage() {
 
   // Global loader while initially checking session to prevent UI flicker
   if (isCheckingSession) {
-    console.log("StartConsultationPage: RENDERING - isCheckingSession is TRUE. Displaying global loader.")
+    console.log(
+      "StartConsultationPage: RENDERING - isCheckingSession is TRUE (production log). Displaying global loader.",
+    )
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="animate-spin text-blue-600 h-12 w-12" />
@@ -476,10 +481,13 @@ export default function StartConsultationPage() {
   }
 
   console.log(
-    `StartConsultationPage: RENDERING - isCheckingSession is FALSE. Current step: ${currentStep}, Auth view: ${authView}, User logged in: ${isUserLoggedIn}, Email: ${userEmail}`,
+    `StartConsultationPage: RENDERING - isCheckingSession is FALSE (production log). Current step: ${currentStep}, Auth view: ${authView}, User logged in: ${isUserLoggedIn}, Email: ${userEmail ? userEmail.substring(0, 3) + "..." : "undefined"}`,
   )
 
   return (
+    // JSX du composant
+    // ...
+    // Copiez le JSX complet de votre composant ici
     <div className="bg-gray-50 min-h-screen">
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -739,7 +747,7 @@ export default function StartConsultationPage() {
                   className="px-8 py-3 text-base"
                   disabled={isLoading || !selectedPricing}
                 >
-                  {isLoading && currentStep === 2 ? ( // Should be pricingLoading or a specific loader for this step
+                  {isLoading && currentStep === 2 ? (
                     <>
                       <Loader2 className="animate-spin mr-2" size={16} />
                       Chargement...
@@ -775,8 +783,6 @@ export default function StartConsultationPage() {
                 </div>
               )}
               <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-                {" "}
-                {/* Prevent default form submission */}
                 <div className="grid md:grid-cols-2 gap-6">
                   <div>
                     <Label htmlFor="firstName">{t.firstNameLabel || "Prénom"}</Label>
@@ -806,9 +812,9 @@ export default function StartConsultationPage() {
                       id="email-patient"
                       type="email"
                       placeholder="email@example.com"
-                      value={userEmail || ""} // Use value instead of defaultValue for controlled component
-                      readOnly // Email should be read-only if pre-filled from auth
-                      disabled // Visually indicate it's not editable
+                      value={userEmail || ""}
+                      readOnly
+                      disabled
                     />
                   </div>
                   <div>
@@ -931,7 +937,7 @@ export default function StartConsultationPage() {
                 </div>
                 <div className="mt-8 flex justify-center">
                   <Button
-                    onClick={handleNextStep} // Changed from type="submit" to onClick
+                    onClick={handleNextStep}
                     className="px-8 py-3 text-base"
                     disabled={isLoading || !firstName || !lastName}
                   >
