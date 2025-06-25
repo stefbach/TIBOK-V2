@@ -131,8 +131,8 @@ export default function StartConsultationPage() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       console.log(
-        "%cStartConsultationPage: onAuthStateChange TRIGGERED",
-        "color: blue; font-weight: bold;",
+        "%cStartConsultationPage: [DEBUG] onAuthStateChange TRIGGERED",
+        "color: orange; font-weight: bold;",
         "Event:",
         event,
         "Session:",
@@ -140,46 +140,45 @@ export default function StartConsultationPage() {
       )
 
       if (session) {
-        console.log("StartConsultationPage: Session DETECTED. User ID:", session.user.id, "Email:", session.user.email)
+        console.log("StartConsultationPage: [DEBUG] Session DETECTED. User ID:", session.user.id)
         setIsUserLoggedIn(true)
         setUserEmail(session.user.email)
 
-        await ensureUserProfile(session.user.id, session.user.email || "")
-        console.log("StartConsultationPage: User profile ensured for", session.user.id)
+        // Temporarily bypass profile and patient data checks for debugging page load
+        console.log("StartConsultationPage: [DEBUG] Bypassing ensureUserProfile and patient data check.")
+        console.log("StartConsultationPage: [DEBUG] Assuming if session, user might want to select plan (step 2).")
+        // Check if user already has patient data, if so, redirect to dashboard, otherwise step 2
+        // This is a simplified check, ideally you'd check if patient setup is complete
+        const { data: patientData } = await supabase
+          .from("patients")
+          .select("user_id")
+          .eq("user_id", session.user.id)
+          .maybeSingle()
 
-        try {
-          const { data: patientData, error: patientError } = await supabase
-            .from("patients")
-            .select("user_id")
-            .eq("user_id", session.user.id)
-            .maybeSingle()
-
-          if (patientError) {
-            console.error("StartConsultationPage: Error checking patient data (production log):", patientError)
-            setCurrentStep(2)
-          } else if (patientData) {
-            console.log("StartConsultationPage: Patient data FOUND (production log). Redirecting to /dashboard.")
-            router.push("/dashboard")
-          } else {
-            console.log("StartConsultationPage: NO patient data (production log). Setting currentStep to 2.")
-            setCurrentStep(2)
-          }
-        } catch (e) {
-          console.error("StartConsultationPage: CATCH block for patient data check (production log):", e)
+        if (patientData) {
+          console.log("StartConsultationPage: [DEBUG] Patient data found, redirecting to dashboard.")
+          router.push("/dashboard")
+        } else {
+          console.log("StartConsultationPage: [DEBUG] No patient data, setting currentStep to 2.")
           setCurrentStep(2)
         }
       } else {
-        console.log("StartConsultationPage: NO session detected (production log). Event:", event)
+        console.log("StartConsultationPage: [DEBUG] NO session detected. Event:", event)
         setIsUserLoggedIn(false)
         setUserEmail(undefined)
-        console.log("StartConsultationPage: Setting currentStep to 1 (Auth/Login step) (production log).")
+        console.log("StartConsultationPage: [DEBUG] Setting currentStep to 1 (Auth/Login step).")
         setCurrentStep(1)
       }
+
       console.log(
-        "%cStartConsultationPage: Setting isCheckingSession to false (production log).",
-        "color: green; font-weight: bold;",
+        "%cStartConsultationPage: [DEBUG] ATTEMPTING TO SET isCheckingSession to false.",
+        "color: red; font-weight: bold;",
       )
       setIsCheckingSession(false)
+      console.log(
+        "%cStartConsultationPage: [DEBUG] SUCCESSFULLY SET isCheckingSession to false. Current step:",
+        currentStep,
+      )
     })
 
     return () => {
@@ -471,7 +470,8 @@ export default function StartConsultationPage() {
   }
 
   console.log(
-    `StartConsultationPage: RENDERING - isCheckingSession is FALSE (production log). Current step: ${currentStep}, Auth view: ${authView}, User logged in: ${isUserLoggedIn}, Email: ${userEmail ? userEmail.substring(0, 3) + "..." : "undefined"}`,
+    `%cStartConsultationPage: [DEBUG] RENDERING. isCheckingSession: ${isCheckingSession}, currentStep: ${currentStep}`,
+    "color: purple; font-weight: bold;",
   )
 
   return (
