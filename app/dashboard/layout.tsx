@@ -92,7 +92,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       if (user) {
         const { data: profile, error: profileError } = await supabase
           .from("profiles")
-          .select("first_name, last_name, avatar_url")
+          .select("*") // safer – works whatever the column names are
           .eq("id", user.id)
           .single()
 
@@ -150,7 +150,18 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     }
   }, [supabase])
 
-  const displayName = currentUser ? `${currentUser.firstName || ""} ${currentUser.lastName || ""}`.trim() : "User"
+  const displayName = currentUser
+    ? [
+        currentUser.firstName, // first_name
+        currentUser.lastName, // last_name
+      ]
+        .filter(Boolean)
+        .join(" ") ||
+      (currentUser as any).fullName || // full_name or name
+      (currentUser as any).name ||
+      currentUser.email?.split("@")[0] || // email prefix
+      "Utilisateur"
+    : "Utilisateur"
   const avatarFallbackName = currentUser
     ? `${(currentUser.firstName || "U").charAt(0)}${(currentUser.lastName || "").charAt(0)}`
     : "U"
@@ -284,7 +295,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </aside>
 
         <main className="flex-1 md:ml-64 p-4 sm:p-6 lg:p-8 mt-0">
-          {React.cloneElement(children as React.ReactElement, { activeTab })}
+          {React.cloneElement(children as React.ReactElement, { activeTab, currentUser, isLoadingUser })}
         </main>
       </div>
     </div>

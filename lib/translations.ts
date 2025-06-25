@@ -202,6 +202,7 @@ export const translations = {
     navHistory: "Historique",
     dashboardWelcome: "Bonjour",
     dashboardSubtitle: "Votre santé au bout des doigts",
+    dashboardDefaultUserName: "Utilisateur", // Nom par défaut si non disponible
     statConsultations: "Consultations",
     statPrescriptions: "Prescriptions",
     statSecondOpinions: "Second Avis",
@@ -1157,6 +1158,7 @@ export const translations = {
     navHistory: "History",
     dashboardWelcome: "Hello",
     dashboardSubtitle: "Your health at your fingertips",
+    dashboardDefaultUserName: "User", // Default name if not available
     statConsultations: "Consultations",
     statPrescriptions: "Prescriptions",
     statSecondOpinions: "Second Opinions",

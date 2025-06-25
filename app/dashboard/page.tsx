@@ -83,6 +83,7 @@ import {
   type ChartOptions,
 } from "chart.js"
 import { Line } from "react-chartjs-2"
+import { Skeleton } from "@/components/ui/skeleton"
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, TimeScale)
 
@@ -383,8 +384,18 @@ const mockUser = {
   medicalHistory: mockMedicalHistoryExtended, // Use the new extended history
 }
 
+interface UserProfile {
+  id: string
+  firstName: string | null
+  lastName: string | null
+  avatarUrl: string | null
+  email: string | undefined
+}
+
 interface DashboardPageContentProps {
   activeTab?: string
+  currentUser?: UserProfile | null
+  isLoadingUser?: boolean
 }
 
 interface StepProps {
@@ -493,7 +504,11 @@ interface MedicationReminder {
   time: string
 }
 
-export default function DashboardPageContent({ activeTab: activeTabFromLayout }: DashboardPageContentProps) {
+export default function DashboardPageContent({
+  activeTab: activeTabFromLayout,
+  currentUser,
+  isLoadingUser,
+}: DashboardPageContentProps) {
   const searchParams = useSearchParams()
   const router = useRouter()
   const tabFromQuery = searchParams.get("tab")
@@ -817,11 +832,27 @@ export default function DashboardPageContent({ activeTab: activeTabFromLayout }:
   const renderContent = () => {
     switch (activeTab) {
       case "dashboard":
+        const dashboardDisplayName = isLoadingUser
+          ? "" // Will be handled by Skeleton
+          : currentUser
+            ? [currentUser.firstName, currentUser.lastName].filter(Boolean).join(" ") ||
+              (currentUser as any).fullName ||
+              (currentUser as any).name ||
+              currentUser.email?.split("@")[0] ||
+              t("dashboardDefaultUserName" as TranslationKey) // Assuming you add this key
+            : t("dashboardDefaultUserName" as TranslationKey) // Assuming you add this key
+
         return (
           <div>
             <div className="mb-8">
               <h1 className="text-2xl font-bold text-gray-900 mb-1">
-                {t("dashboardWelcome")} {mockUser.name}
+                {isLoadingUser ? (
+                  <Skeleton className="h-7 w-52 inline-block" />
+                ) : (
+                  <>
+                    {t("dashboardWelcome")} {dashboardDisplayName}
+                  </>
+                )}
               </h1>
               <p className="text-gray-600">{t("dashboardSubtitle")}</p>
             </div>
