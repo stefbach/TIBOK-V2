@@ -29,6 +29,8 @@ import { useSearchParams, useRouter } from "next/navigation"
 import { getSupabaseBrowserClient } from "@/lib/supabase/client"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
+console.log("[StartConsultationPage] TOP LEVEL SCRIPT EXECUTION - Production Test")
+
 const stepsConfig = [
   { id: 1, labelKey: "step1Label" as TranslationKey },
   { id: 2, labelKey: "step2Label" as TranslationKey },
@@ -64,7 +66,7 @@ export default function StartConsultationPage() {
 
   const [authView, setAuthView] = useState<AuthView>("login")
   const [isLoading, setIsLoading] = useState(false)
-  const [isCheckingSession, setIsCheckingSession] = useState(true)
+  const [isCheckingSession, setIsCheckingSession] = useState(false) // Temporairement false par défaut
 
   const [authError, setAuthError] = useState<string | null>(null)
   const [isUserLoggedIn, setIsUserLoggedIn] = useState(false)
@@ -119,75 +121,81 @@ export default function StartConsultationPage() {
     [supabase, createUserProfile],
   )
 
+  // useEffect(() => {
+  //   console.log(
+  //     "StartConsultationPage: useEffect for onAuthStateChange MOUNTED. Initial isCheckingSession:",
+  //     isCheckingSession,
+  //     "Initial currentStep:",
+  //     currentStep,
+  //   )
+
+  //   const {
+  //     data: { subscription },
+  //   } = supabase.auth.onAuthStateChange(async (event, session) => {
+  //     console.log(
+  //       "%cStartConsultationPage: [DEBUG] onAuthStateChange TRIGGERED",
+  //       "color: orange; font-weight: bold;",
+  //       "Event:",
+  //       event,
+  //       "Session:",
+  //       session ? `Exists (User ID: ${session.user.id})` : "Null",
+  //     )
+
+  //     if (session) {
+  //       console.log("StartConsultationPage: [DEBUG] Session DETECTED. User ID:", session.user.id)
+  //       setIsUserLoggedIn(true)
+  //       setUserEmail(session.user.email)
+
+  //       // Temporarily bypass profile and patient data checks for debugging page load
+  //       console.log("StartConsultationPage: [DEBUG] Bypassing ensureUserProfile and patient data check.")
+  //       console.log("StartConsultationPage: [DEBUG] Assuming if session, user might want to select plan (step 2).")
+  //       // Check if user already has patient data, if so, redirect to dashboard, otherwise step 2
+  //       // This is a simplified check, ideally you'd check if patient setup is complete
+  //       const { data: patientData } = await supabase
+  //         .from("patients")
+  //         .select("user_id")
+  //         .eq("user_id", session.user.id)
+  //         .maybeSingle()
+
+  //       if (patientData) {
+  //         console.log("StartConsultationPage: [DEBUG] Patient data found, redirecting to dashboard.")
+  //         router.push("/dashboard")
+  //       } else {
+  //         console.log("StartConsultationPage: [DEBUG] No patient data, setting currentStep to 2.")
+  //         setCurrentStep(2)
+  //       }
+  //     } else {
+  //       console.log("StartConsultationPage: [DEBUG] NO session detected. Event:", event)
+  //       setIsUserLoggedIn(false)
+  //       setUserEmail(undefined)
+  //       console.log("StartConsultationPage: [DEBUG] Setting currentStep to 1 (Auth/Login step).")
+  //       setCurrentStep(1)
+  //     }
+
+  //     console.log(
+  //       "%cStartConsultationPage: [DEBUG] ATTEMPTING TO SET isCheckingSession to false.",
+  //       "color: red; font-weight: bold;",
+  //     )
+  //     setIsCheckingSession(false)
+  //     console.log(
+  //       "%cStartConsultationPage: [DEBUG] SUCCESSFULLY SET isCheckingSession to false. Current step:",
+  //       currentStep,
+  //     )
+  //   })
+
+  //   return () => {
+  //     console.log(
+  //       "StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING (production log). Cleaning up listener.",
+  //     )
+  //     subscription.unsubscribe()
+  //   }
+  // }, [supabase, router, ensureUserProfile])
+
   useEffect(() => {
-    console.log(
-      "StartConsultationPage: useEffect for onAuthStateChange MOUNTED. Initial isCheckingSession:",
-      isCheckingSession,
-      "Initial currentStep:",
-      currentStep,
-    )
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log(
-        "%cStartConsultationPage: [DEBUG] onAuthStateChange TRIGGERED",
-        "color: orange; font-weight: bold;",
-        "Event:",
-        event,
-        "Session:",
-        session ? `Exists (User ID: ${session.user.id})` : "Null",
-      )
-
-      if (session) {
-        console.log("StartConsultationPage: [DEBUG] Session DETECTED. User ID:", session.user.id)
-        setIsUserLoggedIn(true)
-        setUserEmail(session.user.email)
-
-        // Temporarily bypass profile and patient data checks for debugging page load
-        console.log("StartConsultationPage: [DEBUG] Bypassing ensureUserProfile and patient data check.")
-        console.log("StartConsultationPage: [DEBUG] Assuming if session, user might want to select plan (step 2).")
-        // Check if user already has patient data, if so, redirect to dashboard, otherwise step 2
-        // This is a simplified check, ideally you'd check if patient setup is complete
-        const { data: patientData } = await supabase
-          .from("patients")
-          .select("user_id")
-          .eq("user_id", session.user.id)
-          .maybeSingle()
-
-        if (patientData) {
-          console.log("StartConsultationPage: [DEBUG] Patient data found, redirecting to dashboard.")
-          router.push("/dashboard")
-        } else {
-          console.log("StartConsultationPage: [DEBUG] No patient data, setting currentStep to 2.")
-          setCurrentStep(2)
-        }
-      } else {
-        console.log("StartConsultationPage: [DEBUG] NO session detected. Event:", event)
-        setIsUserLoggedIn(false)
-        setUserEmail(undefined)
-        console.log("StartConsultationPage: [DEBUG] Setting currentStep to 1 (Auth/Login step).")
-        setCurrentStep(1)
-      }
-
-      console.log(
-        "%cStartConsultationPage: [DEBUG] ATTEMPTING TO SET isCheckingSession to false.",
-        "color: red; font-weight: bold;",
-      )
-      setIsCheckingSession(false)
-      console.log(
-        "%cStartConsultationPage: [DEBUG] SUCCESSFULLY SET isCheckingSession to false. Current step:",
-        currentStep,
-      )
-    })
-
-    return () => {
-      console.log(
-        "StartConsultationPage: useEffect for onAuthStateChange UNMOUNTING (production log). Cleaning up listener.",
-      )
-      subscription.unsubscribe()
-    }
-  }, [supabase, router, ensureUserProfile])
+    console.log("[StartConsultationPage] Basic useEffect running - Production Test")
+    setIsCheckingSession(false)
+    console.log("[StartConsultationPage] setIsCheckingSession(false) CALLED - Production Test")
+  }, [])
 
   const pricingOptions: PricingOption[] = [
     {
@@ -456,6 +464,8 @@ export default function StartConsultationPage() {
     if (isUserLoggedIn) return t.step1Label || "Authentification"
     return authView === "login" ? "Connexion" : "Inscription"
   }
+
+  console.log(`[StartConsultationPage] RENDERING PAGE. isCheckingSession: ${isCheckingSession} - Production Test`)
 
   if (isCheckingSession) {
     console.log(
