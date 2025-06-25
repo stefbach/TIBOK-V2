@@ -59,4 +59,3 @@ export async function GET(request: Request) {
   console.log("[AUTH_CALLBACK] Error redirect URL:", errorRedirectUrl)
   return NextResponse.redirect(errorRedirectUrl)
 }
-
