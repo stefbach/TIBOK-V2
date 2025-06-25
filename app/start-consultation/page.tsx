@@ -18,7 +18,6 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -27,7 +26,7 @@ import Link from "next/link"
 
 // Import conditionnel et sécurisé
 let supabase: any = null
-let useLanguageHook: any = () => ({ language: 'fr' })
+let useLanguageHook: any = () => ({ language: "fr" })
 let translationsData: any = {}
 
 try {
@@ -65,8 +64,8 @@ const createPricingOptions = (translations: any) => {
       desc: t.pricingPayPerUseLocalDesc || "Paiement à l'utilisation pour résidents locaux",
       features: [
         t.pricingPayPerUseLocalFeat1 || "Consultation immédiate",
-        t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé", 
-        t.pricingPayPerUseLocalFeat3 || "Support client local"
+        t.pricingPayPerUseLocalFeat2 || "Rapport médical détaillé",
+        t.pricingPayPerUseLocalFeat3 || "Support client local",
       ],
     },
     {
@@ -77,7 +76,7 @@ const createPricingOptions = (translations: any) => {
       features: [
         t.pricingPayPerUseTouristFeat1 || "Consultation immédiate",
         t.pricingPayPerUseTouristFeat2 || "Rapport médical multilingue",
-        t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7"
+        t.pricingPayPerUseTouristFeat3 || "Support touristique 24/7",
       ],
     },
     {
@@ -86,21 +85,21 @@ const createPricingOptions = (translations: any) => {
       price: t.pricingSoloPackPrice || "49€/mois",
       desc: t.pricingSoloPackDesc || "Plan individuel complet",
       features: [
-        t.pricingSoloPackFeat1 || "Consultations illimitées", 
+        t.pricingSoloPackFeat1 || "Consultations illimitées",
         t.pricingSoloPackFeat2 || "Suivi médical personnalisé",
-        t.pricingSoloPackFeat3 || "Téléconsultations incluses"
+        t.pricingSoloPackFeat3 || "Téléconsultations incluses",
       ],
     },
     {
       id: "family",
-      title: t.pricingFamilyPackTitle || "Pack Famille", 
+      title: t.pricingFamilyPackTitle || "Pack Famille",
       price: t.pricingFamilyPackPrice || "149€/mois",
       desc: t.pricingFamilyPackDesc || "Plan familial pour 4 personnes maximum",
       features: [
         t.pricingFamilyPackFeat1 || "Consultations illimitées pour la famille",
-        t.pricingFamilyPackFeat2 || "Suivi médical complet", 
+        t.pricingFamilyPackFeat2 || "Suivi médical complet",
         t.pricingFamilyPackFeat3 || "Urgences médicales 24/7",
-        t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison"
+        t.pricingFamilyPackFeat4 || "Pharmacie en ligne avec livraison",
       ],
       isPopular: true,
     },
@@ -113,17 +112,17 @@ interface AppState {
   error: string | null
   currentStep: number
   isInitialized: boolean
-  
+
   // Auth
   user: any
-  authView: 'login' | 'signup'
-  
+  authView: "login" | "signup"
+
   // Forms
   loginEmail: string
   loginPassword: string
   signupEmail: string
   signupPassword: string
-  
+
   // Patient
   firstName: string
   lastName: string
@@ -135,7 +134,7 @@ interface AppState {
   country: string
   emergencyName: string
   emergencyPhone: string
-  
+
   // Pricing
   selectedPlan: string | null
 }
@@ -143,15 +142,9 @@ interface AppState {
 export default function StartConsultationPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  
+
   // Hook de langue avec fallback stable
-  const { language } = useMemo(() => {
-    try {
-      return useLanguageHook()
-    } catch {
-      return { language: 'fr' }
-    }
-  }, [])
+  const { language } = useLanguageHook()
 
   // Traductions memoized pour éviter les re-calculs
   const translations = useMemo(() => {
@@ -170,27 +163,27 @@ export default function StartConsultationPage() {
     currentStep: 1,
     isInitialized: false,
     user: null,
-    authView: 'login',
-    loginEmail: '',
-    loginPassword: '',
-    signupEmail: '',
-    signupPassword: '',
-    firstName: '',
-    lastName: '',
-    phone: '',
-    birthDate: '',
-    gender: '',
-    address: '',
-    city: '',
-    country: '',
-    emergencyName: '',
-    emergencyPhone: '',
+    authView: "login",
+    loginEmail: "",
+    loginPassword: "",
+    signupEmail: "",
+    signupPassword: "",
+    firstName: "",
+    lastName: "",
+    phone: "",
+    birthDate: "",
+    gender: "",
+    address: "",
+    city: "",
+    country: "",
+    emergencyName: "",
+    emergencyPhone: "",
     selectedPlan: null,
   })
 
   // Helper pour mettre à jour l'état - useCallback pour stabilité
   const updateState = useCallback((updates: Partial<AppState>) => {
-    setState(prev => ({ ...prev, ...updates }))
+    setState((prev) => ({ ...prev, ...updates }))
   }, [])
 
   // Initialisation - Effect séparé et stable
@@ -200,19 +193,22 @@ export default function StartConsultationPage() {
     const initializePage = async () => {
       // Vérifier le plan initial depuis l'URL
       const initialPlan = searchParams.get("plan")
-      if (initialPlan && pricingOptions.some(p => p.id === initialPlan)) {
+      if (initialPlan && pricingOptions.some((p) => p.id === initialPlan)) {
         if (mounted) updateState({ selectedPlan: initialPlan })
       }
 
       // Vérifier la session si Supabase est disponible
       if (supabase) {
         try {
-          const { data: { session }, error } = await supabase.auth.getSession()
-          
+          const {
+            data: { session },
+            error,
+          } = await supabase.auth.getSession()
+
           if (mounted && session?.user) {
             // Utilisateur connecté - vérifier s'il a déjà des données patient
             updateState({ user: session.user })
-            
+
             try {
               const { data: patientData } = await supabase
                 .from("patients")
@@ -222,10 +218,12 @@ export default function StartConsultationPage() {
 
               if (patientData && mounted) {
                 // Patient existe déjà, rediriger vers dashboard
+                console.log("Redirection vers /dashboard car patient existe")
                 router.push("/dashboard")
                 return
               } else if (mounted) {
                 // Patient n'existe pas, aller à l'étape de sélection de tarif
+                console.log("Pas de données patient, étape 2")
                 updateState({ currentStep: 2 })
               }
             } catch (e) {
@@ -234,6 +232,7 @@ export default function StartConsultationPage() {
             }
           } else if (mounted) {
             // Pas d'utilisateur connecté, rester à l'étape 1
+            console.log("Pas de session, étape 1")
             updateState({ currentStep: 1 })
           }
         } catch (error) {
@@ -253,61 +252,64 @@ export default function StartConsultationPage() {
   }, [searchParams, router, updateState, pricingOptions])
 
   // Authentification
-  const handleAuth = useCallback(async (e: React.FormEvent) => {
-    e.preventDefault()
-    
-    if (!supabase) {
-      updateState({ error: "Service d'authentification non disponible" })
-      return
-    }
+  const handleAuth = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault()
 
-    updateState({ isLoading: true, error: null })
-
-    try {
-      const email = state.authView === 'signup' ? state.signupEmail : state.loginEmail
-      const password = state.authView === 'signup' ? state.signupPassword : state.loginPassword
-
-      if (state.authView === 'signup') {
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
-          },
-        })
-
-        if (error) {
-          updateState({ 
-            error: error.message.includes("User already registered") 
-              ? "Un compte avec cet email existe déjà." 
-              : `Erreur d'inscription: ${error.message}` 
-          })
-        } else if (data.user && !data.session) {
-          updateState({ 
-            error: null,
-            currentStep: 1
-          })
-          alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
-        }
-      } else {
-        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
-        
-        if (error) {
-          updateState({ 
-            error: error.message.includes("Invalid login credentials")
-              ? "Email ou mot de passe incorrect."
-              : `Erreur de connexion: ${error.message}` 
-          })
-        } else if (data.user) {
-          updateState({ user: data.user, currentStep: 2, error: null })
-        }
+      if (!supabase) {
+        updateState({ error: "Service d'authentification non disponible" })
+        return
       }
-    } catch (error: any) {
-      updateState({ error: "Erreur de connexion. Vérifiez votre connexion internet." })
-    } finally {
-      updateState({ isLoading: false })
-    }
-  }, [state.authView, state.signupEmail, state.loginEmail, state.signupPassword, state.loginPassword, updateState])
+
+      updateState({ isLoading: true, error: null })
+
+      try {
+        const email = state.authView === "signup" ? state.signupEmail : state.loginEmail
+        const password = state.authView === "signup" ? state.signupPassword : state.loginPassword
+
+        if (state.authView === "signup") {
+          const { data, error } = await supabase.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: `${window.location.origin}/auth/callback?next=/start-consultation`,
+            },
+          })
+
+          if (error) {
+            updateState({
+              error: error.message.includes("User already registered")
+                ? "Un compte avec cet email existe déjà."
+                : `Erreur d'inscription: ${error.message}`,
+            })
+          } else if (data.user && !data.session) {
+            updateState({
+              error: null,
+              currentStep: 1,
+            })
+            alert("Inscription réussie ! Vérifiez votre email pour confirmer votre compte.")
+          }
+        } else {
+          const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+
+          if (error) {
+            updateState({
+              error: error.message.includes("Invalid login credentials")
+                ? "Email ou mot de passe incorrect."
+                : `Erreur de connexion: ${error.message}`,
+            })
+          } else if (data.user) {
+            updateState({ user: data.user, currentStep: 2, error: null })
+          }
+        }
+      } catch (error: any) {
+        updateState({ error: "Erreur de connexion. Vérifiez votre connexion internet." })
+      } finally {
+        updateState({ isLoading: false })
+      }
+    },
+    [state.authView, state.signupEmail, state.loginEmail, state.signupPassword, state.loginPassword, updateState],
+  )
 
   // Navigation entre étapes
   const handleNextStep = useCallback(async () => {
@@ -317,7 +319,7 @@ export default function StartConsultationPage() {
       case 1:
         updateState({ currentStep: 2 })
         break
-        
+
       case 2:
         if (!state.selectedPlan) {
           updateState({ error: "Veuillez sélectionner un plan tarifaire." })
@@ -325,17 +327,17 @@ export default function StartConsultationPage() {
         }
         updateState({ currentStep: 3 })
         break
-        
+
       case 3:
         if (!state.firstName || !state.lastName) {
           updateState({ error: "Veuillez remplir au moins le prénom et le nom." })
           return
         }
-        
+
         // Sauvegarder les données patient si Supabase disponible
         if (supabase && state.user) {
           updateState({ isLoading: true })
-          
+
           try {
             const patientData = {
               user_id: state.user.id,
@@ -351,9 +353,9 @@ export default function StartConsultationPage() {
               emergency_contact_name: state.emergencyName || null,
               emergency_contact_phone: state.emergencyPhone || null,
             }
-            
+
             const { error } = await supabase.from("patients").upsert(patientData, { onConflict: "user_id" })
-            
+
             if (error) {
               updateState({ error: `Erreur sauvegarde: ${error.message}` })
               return
@@ -361,11 +363,7 @@ export default function StartConsultationPage() {
 
             // Mettre à jour le profil
             const fullName = `${state.firstName} ${state.lastName}`.trim()
-            await supabase.from("profiles").upsert(
-              { id: state.user.id, full_name: fullName }, 
-              { onConflict: "id" }
-            )
-            
+            await supabase.from("profiles").upsert({ id: state.user.id, full_name: fullName }, { onConflict: "id" })
           } catch (error: any) {
             updateState({ error: `Erreur: ${error.message}` })
             return
@@ -373,30 +371,51 @@ export default function StartConsultationPage() {
             updateState({ isLoading: false })
           }
         }
-        
+
         updateState({ currentStep: 4 })
         break
-        
+
       case 4:
         updateState({ currentStep: 5 })
         break
     }
-  }, [state.currentStep, state.selectedPlan, state.firstName, state.lastName, state.user, state.birthDate, state.gender, state.phone, state.address, state.city, state.country, state.emergencyName, state.emergencyPhone, updateState])
+  }, [
+    state.currentStep,
+    state.selectedPlan,
+    state.firstName,
+    state.lastName,
+    state.user,
+    state.birthDate,
+    state.gender,
+    state.phone,
+    state.address,
+    state.city,
+    state.country,
+    state.emergencyName,
+    state.emergencyPhone,
+    updateState,
+  ])
 
   // Handlers pour les formulaires
-  const handleTabChange = useCallback((value: string) => {
-    updateState({ authView: value as 'login' | 'signup', error: null })
-  }, [updateState])
+  const handleTabChange = useCallback(
+    (value: string) => {
+      updateState({ authView: value as "login" | "signup", error: null })
+    },
+    [updateState],
+  )
 
-  const handleSelectPricing = useCallback((planId: string) => {
-    updateState({ selectedPlan: planId })
-  }, [updateState])
+  const handleSelectPricing = useCallback(
+    (planId: string) => {
+      updateState({ selectedPlan: planId })
+    },
+    [updateState],
+  )
 
   const handleDemoMode = useCallback(() => {
-    updateState({ 
-      currentStep: 2, 
-      user: { email: 'demo@tibok.com' },
-      error: null 
+    updateState({
+      currentStep: 2,
+      user: { email: "demo@tibok.com" },
+      error: null,
     })
   }, [updateState])
 
@@ -470,12 +489,8 @@ export default function StartConsultationPage() {
           <div className="mb-6 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
             <AlertTriangle className="inline-block mr-2 h-5 w-5" />
             <span className="block sm:inline">{state.error}</span>
-            <button 
-              className="absolute top-0 bottom-0 right-0 px-4 py-3"
-              onClick={() => updateState({ error: null })}
-            >
-              <span className="sr-only">Fermer</span>
-              ×
+            <button className="absolute top-0 bottom-0 right-0 px-4 py-3" onClick={() => updateState({ error: null })}>
+              <span className="sr-only">Fermer</span>×
             </button>
           </div>
         )}
@@ -493,7 +508,7 @@ export default function StartConsultationPage() {
                   <TabsTrigger value="login">Connexion</TabsTrigger>
                   <TabsTrigger value="signup">Inscription</TabsTrigger>
                 </TabsList>
-                
+
                 <TabsContent value="login">
                   <form onSubmit={handleAuth} className="space-y-4 pt-4">
                     <div>
@@ -530,7 +545,7 @@ export default function StartConsultationPage() {
                     </Button>
                   </form>
                 </TabsContent>
-                
+
                 <TabsContent value="signup">
                   <form onSubmit={handleAuth} className="space-y-4 pt-4">
                     <div>
@@ -573,16 +588,10 @@ export default function StartConsultationPage() {
               {/* Mode dégradé si pas de Supabase */}
               {!supabase && (
                 <div className="mt-4 text-center">
-                  <Button 
-                    onClick={handleDemoMode}
-                    variant="outline" 
-                    className="w-full"
-                  >
+                  <Button onClick={handleDemoMode} variant="outline" className="w-full">
                     Continuer en mode démo
                   </Button>
-                  <p className="text-xs text-gray-500 mt-2">
-                    Mode démonstration - Aucune donnée ne sera sauvegardée
-                  </p>
+                  <p className="text-xs text-gray-500 mt-2">Mode démonstration - Aucune donnée ne sera sauvegardée</p>
                 </div>
               )}
             </CardContent>
@@ -620,15 +629,9 @@ export default function StartConsultationPage() {
                           {translations.pricingPopularBadge || "Populaire"}
                         </span>
                       )}
-                      <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">
-                        {option.title}
-                      </h3>
-                      <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">
-                        {option.price}
-                      </div>
-                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">
-                        {option.desc}
-                      </p>
+                      <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">{option.title}</h3>
+                      <div className="text-xl sm:text-2xl font-bold text-blue-600 mb-1 sm:mb-2">{option.price}</div>
+                      <p className="text-xs sm:text-sm text-gray-600 mb-2 sm:mb-4">{option.desc}</p>
                       <ul className="text-xs text-gray-600 space-y-1 text-left">
                         {option.features.map((feature, index) => (
                           <li key={index} className="flex items-start">
@@ -661,7 +664,9 @@ export default function StartConsultationPage() {
                       <div className="text-xl sm:text-2xl font-bold text-blue-600">
                         {translations.secondOpinionPriceDetails || "Sur devis"}
                       </div>
-                      <p className="text-sm text-gray-600">{translations.secondOpinionPriceCondition || "Tarif personnalisé"}</p>
+                      <p className="text-sm text-gray-600">
+                        {translations.secondOpinionPriceCondition || "Tarif personnalisé"}
+                      </p>
                     </div>
                   </div>
                   <div className="grid md:grid-cols-3 gap-4 mt-4">
@@ -910,7 +915,8 @@ export default function StartConsultationPage() {
                   <div className="flex items-center justify-between text-sm">
                     <span className="font-medium text-gray-900">Plan sélectionné</span>
                     <span className="font-bold text-blue-600">
-                      {pricingOptions.find(p => p.id === state.selectedPlan)?.title} - {pricingOptions.find(p => p.id === state.selectedPlan)?.price}
+                      {pricingOptions.find((p) => p.id === state.selectedPlan)?.title} -{" "}
+                      {pricingOptions.find((p) => p.id === state.selectedPlan)?.price}
                     </span>
                   </div>
                 </div>
@@ -962,12 +968,10 @@ export default function StartConsultationPage() {
                   <p className="text-xs text-gray-600">Assistant médical IA</p>
                 </div>
               </div>
-              
+
               <div className="flex justify-center">
                 <Link href="/dashboard" passHref>
-                  <Button className="px-8 py-3 text-base font-medium">
-                    Aller au tableau de bord
-                  </Button>
+                  <Button className="px-8 py-3 text-base font-medium">Aller au tableau de bord</Button>
                 </Link>
               </div>
             </CardContent>
