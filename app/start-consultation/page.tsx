@@ -189,67 +189,109 @@ export default function StartConsultationPage() {
   // Initialisation - Effect séparé et stable
   useEffect(() => {
     let mounted = true
+    console.log("[DEBUG_SPIN] StartConsultationPage useEffect initializePage triggered")
 
     const initializePage = async () => {
+      console.log("[DEBUG_SPIN] initializePage: Démarrage")
       // Vérifier le plan initial depuis l'URL
       const initialPlan = searchParams.get("plan")
       if (initialPlan && pricingOptions.some((p) => p.id === initialPlan)) {
-        if (mounted) updateState({ selectedPlan: initialPlan })
+        if (mounted) {
+          console.log("[DEBUG_SPIN] initializePage: Plan initial trouvé dans l'URL:", initialPlan)
+          updateState({ selectedPlan: initialPlan })
+        }
       }
 
       // Vérifier la session si Supabase est disponible
       if (supabase) {
+        console.log("[DEBUG_SPIN] initializePage: Supabase disponible, vérification de la session.")
         try {
           const {
             data: { session },
-            error,
+            error: sessionError,
           } = await supabase.auth.getSession()
 
+          if (sessionError && mounted) {
+            console.error("[DEBUG_SPIN] initializePage: Erreur getSession:", sessionError.message)
+            updateState({ error: `Erreur de session: ${sessionError.message}`, currentStep: 1, isInitialized: true })
+            return
+          }
+
           if (mounted && session?.user) {
-            // Utilisateur connecté - vérifier s'il a déjà des données patient
             updateState({ user: session.user })
+            console.log("[DEBUG_SPIN] initializePage: Session utilisateur trouvée:", session.user.id)
 
             try {
-              const { data: patientData } = await supabase
+              const { data: patientData, error: patientError } = await supabase
                 .from("patients")
-                .select("user_id")
+                .select("user_id, first_name, last_name") // Sélectionner quelques champs pour confirmer
                 .eq("user_id", session.user.id)
                 .maybeSingle()
 
-              if (patientData && mounted) {
-                // Patient existe déjà, rediriger vers dashboard
-                console.log("Redirection vers /dashboard car patient existe")
+              if (patientError && mounted) {
+                console.error("[DEBUG_SPIN] initializePage: Erreur récupération patient:", patientError.message)
+                // Si erreur patient, on va à l'étape 2 pour permettre de continuer le flux
+                updateState({
+                  error: `Erreur données patient: ${patientError.message}`,
+                  currentStep: 2,
+                  isInitialized: true,
+                })
+                return
+              }
+
+              console.log("[DEBUG_SPIN] initializePage: Données patient récupérées:", patientData)
+
+              // Vérifier si le patient a des informations de base (prénom/nom)
+              // Cela indique qu'il a probablement passé l'étape 3.
+              if (patientData && patientData.first_name && patientData.last_name && mounted) {
+                console.log("[DEBUG_SPIN] initializePage: Patient existe avec prénom/nom. Redirection vers /dashboard.")
                 router.push("/dashboard")
+                // Ne pas mettre isInitialized à true ici, car on redirige.
+                // La page actuelle ne devrait pas s'afficher.
                 return
               } else if (mounted) {
-                // Patient n'existe pas, aller à l'étape de sélection de tarif
-                console.log("Pas de données patient, étape 2")
-                updateState({ currentStep: 2 })
+                // Patient n'existe pas ou n'a pas complété les infos, aller à l'étape de sélection de tarif
+                console.log(
+                  "[DEBUG_SPIN] initializePage: Patient n'existe pas ou infos incomplètes. Aller à l'étape 2 (Tarification).",
+                )
+                updateState({ currentStep: 2, isInitialized: true })
               }
-            } catch (e) {
-              console.warn("Erreur vérification patient:", e)
-              if (mounted) updateState({ currentStep: 2 })
+            } catch (e: any) {
+              console.warn("[DEBUG_SPIN] initializePage: Erreur inattendue vérification patient:", e.message)
+              if (mounted)
+                updateState({
+                  currentStep: 2,
+                  isInitialized: true,
+                  error: "Erreur lors de la vérification des informations patient.",
+                })
             }
           } else if (mounted) {
             // Pas d'utilisateur connecté, rester à l'étape 1
-            console.log("Pas de session, étape 1")
-            updateState({ currentStep: 1 })
+            console.log(
+              "[DEBUG_SPIN] initializePage: Pas de session utilisateur. Aller à l'étape 1 (Authentification).",
+            )
+            updateState({ currentStep: 1, isInitialized: true })
           }
-        } catch (error) {
-          console.warn("Erreur session:", error)
-          if (mounted) updateState({ currentStep: 1 })
+        } catch (error: any) {
+          console.warn("[DEBUG_SPIN] initializePage: Erreur globale dans initializePage:", error.message)
+          if (mounted)
+            updateState({ currentStep: 1, isInitialized: true, error: "Erreur d'initialisation de la page." })
         }
+      } else {
+        console.log(
+          "[DEBUG_SPIN] initializePage: Supabase non disponible. Aller à l'étape 1 (Authentification), mode démo possible.",
+        )
+        if (mounted) updateState({ currentStep: 1, isInitialized: true })
       }
-
-      if (mounted) updateState({ isInitialized: true })
     }
 
     initializePage()
 
     return () => {
+      console.log("[DEBUG_SPIN] StartConsultationPage useEffect cleanup")
       mounted = false
     }
-  }, [searchParams, router, updateState, pricingOptions])
+  }, [searchParams, router, updateState, pricingOptions]) // pricingOptions ajouté aux dépendances
 
   // Authentification
   const handleAuth = useCallback(
