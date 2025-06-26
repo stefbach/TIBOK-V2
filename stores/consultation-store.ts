@@ -77,7 +77,7 @@ interface ConsultationState {
 
   // Actions
   startNewConsultation: (consultationId: string, doctorId: string, patientId: string) => Promise<void>
-  joinExistingConsultation: (roomUrl: string, userName: string) => Promise<void>
+  joinExistingConsultation: (roomUrl: string, userName: string, userType?: "patient" | "doctor") => Promise<void>
   leaveCall: () => void
   toggleCamera: () => void
   toggleMicrophone: () => void
@@ -137,19 +137,40 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       }
       set({ currentConsultation: newConsultation, roomUrl, roomName })
 
-      await get().joinExistingConsultation(roomUrl, "Doctor") // Assuming doctor joins first
+      await get().joinExistingConsultation(roomUrl, "Doctor", "doctor") // Medecin = owner
     } catch (error: any) {
       set({ callStatus: "error", error: { message: error.message, details: error.cause } })
     }
   },
 
-  joinExistingConsultation: async (roomUrl, userName) => {
+  joinExistingConsultation: async (roomUrl, userName, userType = "patient") => {
     const { callObject: existingCallObject } = get()
     if (existingCallObject) return
 
     set({ callStatus: "connecting", roomUrl })
     const co = Daily.createCallObject()
     set({ callObject: co })
+
+    // Extraire le roomName de l'URL (ex: https://xxx.daily.co/roomName)
+    const roomName = roomUrl.split("/").pop()
+
+    // Appeler le backend pour obtenir un token sécurisé
+    let token: string | undefined = undefined
+    try {
+      const tokenRes = await fetch("/api/daily/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomName, userName, userType }),
+      })
+      if (!tokenRes.ok) {
+        throw new Error("Impossible d'obtenir le token d'accès.")
+      }
+      const tokenData = await tokenRes.json()
+      token = tokenData.token
+    } catch (e: any) {
+      set({ callStatus: "error", error: { message: "Impossible d'obtenir le token d'accès." } })
+      return
+    }
 
     // Event listeners
     co.on("joined-meeting", () => set({ callStatus: "connected", participants: Object.values(co.participants()) }))
@@ -172,8 +193,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       })
 
     try {
-      // In a real app, fetch a token from your /api/daily/join endpoint first
-      await co.join({ url: roomUrl, userName })
+      await co.join({ url: roomUrl, token, userName })
     } catch (error: any) {
       set({ callStatus: "error", error: { message: "Impossible de rejoindre l'appel." } })
     }
@@ -184,10 +204,10 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
   cleanup: () => {
     get().callObject?.destroy()
     set({
-      callStatus: "left", // Changed from 'ended' to be more specific
+      callStatus: "left",
       callObject: null,
       participants: [],
-      // Keep roomUrl and roomName for potential reconnection logic or summary screen
+      // roomUrl et roomName conservés pour éventuel résumé ou reconnexion
     })
   },
 
