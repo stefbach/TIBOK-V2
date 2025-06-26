@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from "@/components/ui/label"
 import { Loader2 } from "lucide-react"
 
-interface Patient {
+type Patient = {
   id: string
   full_name: string | null
 }
@@ -58,15 +58,11 @@ export function StartConsultationClient({ patients, doctorId }: StartConsultatio
                   <SelectValue placeholder="Sélectionnez un patient..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {patients.length > 0 ? (
-                    patients.map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.full_name}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <div className="p-4 text-sm text-center text-gray-500">Aucun patient trouvé.</div>
-                  )}
+                  {patients.map((patient) => (
+                    <SelectItem key={patient.id} value={patient.id}>
+                      {patient.full_name || "Patient sans nom"}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -83,8 +79,7 @@ export function StartConsultationClient({ patients, doctorId }: StartConsultatio
 
             {error && (
               <div className="text-sm text-red-600 text-center p-2 bg-red-50 rounded-md">
-                <p className="font-bold">Erreur: {error.message}</p>
-                {error.details && <p className="text-xs mt-1">Détails: {JSON.stringify(error.details)}</p>}
+                <p className="font-bold">Erreur: {error.message || JSON.stringify(error)}</p>
               </div>
             )}
 
