@@ -1,152 +1,124 @@
 "use client"
-import { useLanguage, type Language } from "@/contexts/language-context"
-import { translations, type TranslationKey } from "@/lib/translations"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Textarea } from "@/components/ui/textarea"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { Video, Mic, PhoneOff, ScreenShare, Info, AlertTriangle, ListChecks, Save } from "lucide-react"
 
-const getTranslation = (lang: Language, key: TranslationKey) => {
-  return translations[lang]?.[key] || translations["en"]?.[key] || String(key)
+import { useState } from "react"
+import { DoctorConsultation } from "@/components/doctor-consultation" // Assurez-vous que le chemin est correct
+
+// Données fictives pour la démonstration
+const mockPatientData = {
+  id: "patient-123",
+  name: "Pierre Martin",
+  age: 45,
+  avatarUrl: "/placeholder-user.jpg",
+  consultationType: "Suivi médical",
+  reason: "Maux de tête persistants depuis une semaine, non soulagés par les antalgiques habituels.",
+  history: ["Hypertension artérielle (HTA) traitée", "Cholestérol élevé"],
+  allergies: ["Pénicilline"],
+  medications: ["Lisinopril 10mg/jour", "Atorvastatine 20mg/jour"],
 }
 
+const mockAiSuggestions = [
+  {
+    id: "sugg-1",
+    type: "suggestion",
+    text: "Évaluer la tension artérielle en raison des antécédents d'hypertension et des céphalées.",
+  },
+  {
+    id: "sugg-2",
+    type: "alert",
+    text: "Allergie connue à la Pénicilline. Éviter les antibiotiques de la famille des bêtalactamines.",
+  },
+  {
+    id: "sugg-3",
+    type: "diagnostic",
+    text: "Diagnostics différentiels à considérer : céphalée de tension, migraine, HTA non contrôlée.",
+  },
+  {
+    id: "sugg-4",
+    type: "suggestion",
+    text: "Suggérer un journal des maux de tête pour suivre la fréquence, l'intensité et les déclencheurs.",
+  },
+]
+
 export default function VideoConsultationPage() {
-  const { language } = useLanguage()
-  const t = (key: TranslationKey) => getTranslation(language, key)
+  const [consultationDetails, setConsultationDetails] = useState<{ roomUrl: string; token: string } | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const handleStartConsultation = async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      // 1. Créer la salle de consultation
+      const roomResponse = await fetch("/api/daily/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doctorId: "doc-xyz",
+          patientId: "patient-123",
+          consultationId: `consult-${Date.now()}`,
+        }),
+      })
+
+      if (!roomResponse.ok) {
+        const errorData = await roomResponse.json()
+        throw new Error(errorData.error || "Erreur lors de la création de la salle.")
+      }
+
+      const { roomUrl, roomName } = await roomResponse.json()
+
+      // 2. Obtenir un token pour le médecin
+      const tokenResponse = await fetch("/api/daily/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomName: roomName,
+          userName: "Dr. Lefebvre",
+          userType: "doctor",
+        }),
+      })
+
+      if (!tokenResponse.ok) {
+        const errorData = await tokenResponse.json()
+        throw new Error(errorData.error || "Erreur lors de la génération du token.")
+      }
+
+      const { token } = await tokenResponse.json()
+
+      setConsultationDetails({ roomUrl, token })
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  if (consultationDetails) {
+    return (
+      <DoctorConsultation
+        roomUrl={consultationDetails.roomUrl}
+        token={consultationDetails.token}
+        patientData={mockPatientData}
+        aiSuggestions={mockAiSuggestions}
+        onLeave={() => setConsultationDetails(null)}
+      />
+    )
+  }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">{t("doctorVideoConsultationTitle")}</h1>
-        <p className="text-gray-600 dark:text-gray-400 mt-1">{t("doctorVideoConsultationSubtitle")}</p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Video Area */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card className="shadow-md">
-            <CardContent className="p-4 aspect-[16/9] bg-gray-900 dark:bg-black rounded-lg flex items-center justify-center">
-              <div className="text-center text-white">
-                <Video className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                <p className="mb-4">{t("doctorVideoConsultationRoomPlaceholder")}</p>
-                <Button variant="secondary" className="bg-green-600 hover:bg-green-700 text-white">
-                  {t("doctorVideoConsultationJoinButton")}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Video Controls */}
-          <Card className="shadow-md">
-            <CardContent className="p-4">
-              <div className="flex justify-center space-x-2 sm:space-x-4">
-                <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-full">
-                  <Mic className="h-5 w-5 sm:h-6 sm:w-6" />
-                </Button>
-                <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-full">
-                  <Video className="h-5 w-5 sm:h-6 sm:w-6" />
-                </Button>
-                <Button variant="destructive" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-full">
-                  <PhoneOff className="h-5 w-5 sm:h-6 sm:w-6" />
-                </Button>
-                <Button variant="outline" size="icon" className="h-10 w-10 sm:h-12 sm:w-12 rounded-full">
-                  <ScreenShare className="h-5 w-5 sm:h-6 sm:w-6" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+      <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900">Démarrer une Consultation</h1>
+          <p className="mt-2 text-sm text-gray-600">Prêt à commencer la téléconsultation avec le patient.</p>
         </div>
-
-        {/* Patient Info & AI Assistant */}
-        <div className="space-y-6">
-          <Card className="shadow-md">
-            <CardHeader>
-              <CardTitle>{t("doctorVideoConsultationCurrentPatientTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="flex items-center space-x-3 mb-4">
-                <Avatar className="h-12 w-12">
-                  <AvatarImage src="/placeholder.svg?width=50&height=50&text=PM" />
-                  <AvatarFallback>PM</AvatarFallback>
-                </Avatar>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-gray-100">
-                    {t("doctorVideoConsultationPatientNameExample")}
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    {t("doctorVideoConsultationPatientInfoExample")}
-                  </p>
-                </div>
-              </div>
-              <div className="space-y-1 text-sm">
-                <p>
-                  <strong className="text-gray-700 dark:text-gray-300">
-                    {t("doctorVideoConsultationReasonLabel")}
-                  </strong>{" "}
-                  <span className="text-gray-600 dark:text-gray-400">{t("doctorVideoConsultationReasonExample")}</span>
-                </p>
-                <p>
-                  <strong className="text-gray-700 dark:text-gray-300">
-                    {t("doctorVideoConsultationHistoryLabel")}
-                  </strong>{" "}
-                  <span className="text-gray-600 dark:text-gray-400">{t("doctorVideoConsultationHistoryExample")}</span>
-                </p>
-                <p>
-                  <strong className="text-gray-700 dark:text-gray-300">
-                    {t("doctorVideoConsultationAllergiesLabel")}
-                  </strong>{" "}
-                  <span className="text-gray-600 dark:text-gray-400">
-                    {t("doctorVideoConsultationAllergiesExample")}
-                  </span>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-md">
-            <CardHeader>
-              <CardTitle>{t("doctorVideoConsultationAIAssistantTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="p-3 bg-blue-50 dark:bg-blue-900/30 rounded-lg flex items-start space-x-2">
-                <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-blue-700 dark:text-blue-300">
-                  {t("doctorVideoConsultationAISuggestionExample")}
-                </p>
-              </div>
-              <div className="p-3 bg-yellow-50 dark:bg-yellow-900/30 rounded-lg flex items-start space-x-2">
-                <AlertTriangle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-yellow-700 dark:text-yellow-300">
-                  {t("doctorVideoConsultationAIAlertExample")}
-                </p>
-              </div>
-              <div className="p-3 bg-green-50 dark:bg-green-900/30 rounded-lg flex items-start space-x-2">
-                <ListChecks className="h-5 w-5 text-green-500 flex-shrink-0 mt-0.5" />
-                <p className="text-sm text-green-700 dark:text-green-300">
-                  {t("doctorVideoConsultationAIDiagnosisExample")}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-md">
-            <CardHeader>
-              <CardTitle>{t("doctorVideoConsultationQuickNotesTitle")}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Textarea
-                placeholder={t("doctorVideoConsultationQuickNotesPlaceholder")}
-                className="resize-none"
-                rows={4}
-              />
-              <Button className="mt-3 w-full">
-                <Save className="h-4 w-4 mr-2" />
-                {t("doctorVideoConsultationSaveButton")}
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
+        {error && <p className="text-sm text-center text-red-600">{error}</p>}
+        <button
+          onClick={handleStartConsultation}
+          disabled={isLoading}
+          className="w-full px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-indigo-300"
+        >
+          {isLoading ? "Création de la salle..." : "Démarrer la consultation"}
+        </button>
       </div>
     </div>
   )
