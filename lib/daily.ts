@@ -14,10 +14,7 @@ async function fetchWithRetry(endpoint: string, options: FetchOptions = {}): Pro
 
   const apiKey = process.env.DAILY_API_KEY
   if (!apiKey) {
-    // This error will now be caught and displayed more clearly by our API route
-    throw new Error(
-      "La variable d'environnement DAILY_API_KEY est manquante. Veuillez l'ajouter dans les paramètres de votre projet Vercel.",
-    )
+    throw new Error("La variable d'environnement DAILY_API_KEY est manquante.")
   }
 
   const headers = {

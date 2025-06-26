@@ -1,29 +1,19 @@
-"use client"
-
 import { createBrowserClient, type SupabaseClient } from "@supabase/ssr"
+// Si vous avez généré les types pour votre base de données (par exemple avec `supabase gen types typescript > lib/database.types.ts`)
+// import type { Database } from '@/lib/database.types'
 
-/**
- * Returns a singleton Supabase browser client.
- */
-let browserClient: SupabaseClient<any> | null = null
+// Remplacez 'any' par 'Database' si vous avez les types
+let clientInstance: SupabaseClient<any> | undefined
 
-export function getSupabaseBrowserClient(): SupabaseClient<any> {
-  if (!browserClient) {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-
-    if (!url || !anonKey) {
-      throw new Error(
-        "Environment variables NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be defined.",
-      )
-    }
-
-    browserClient = createBrowserClient(url, anonKey)
+export function getSupabaseBrowserClient() {
+  if (clientInstance) {
+    return clientInstance
   }
-  return browserClient
+
+  clientInstance = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  )
+
+  return clientInstance
 }
-
-/* Alias kept for backward compatibility across the codebase. */
-export const createClient = getSupabaseBrowserClient
-
-export default getSupabaseBrowserClient

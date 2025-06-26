@@ -44,11 +44,6 @@ interface NetworkTestResult {
   recommendation: string
 }
 
-interface ErrorState {
-  message: string
-  details?: any
-}
-
 // --- État du Store ---
 
 interface ConsultationState {
@@ -59,7 +54,7 @@ interface ConsultationState {
   roomUrl: string | null
   roomName: string | null
   callObject: DailyCall | null
-  error: ErrorState | null
+  error: string | null
 
   // Media & Permissions
   mediaPermissions: { camera: boolean; audio: boolean }
@@ -77,7 +72,7 @@ interface ConsultationState {
 
   // Actions
   startNewConsultation: (consultationId: string, doctorId: string, patientId: string) => Promise<void>
-  joinExistingConsultation: (roomUrl: string, userName: string, userType?: "patient" | "doctor") => Promise<void>
+  joinExistingConsultation: (roomUrl: string, userName: string) => Promise<void>
   leaveCall: () => void
   toggleCamera: () => void
   toggleMicrophone: () => void
@@ -120,10 +115,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
         body: JSON.stringify({ consultationId, doctorId, patientId }),
       })
 
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.error || "Failed to create consultation room.", { cause: errorData.details })
-      }
+      if (!response.ok) throw new Error("Failed to create consultation room.")
       const { roomUrl, roomName } = await response.json()
 
       const newConsultation: Consultation = {
@@ -137,13 +129,13 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       }
       set({ currentConsultation: newConsultation, roomUrl, roomName })
 
-      await get().joinExistingConsultation(roomUrl, "Doctor", "doctor") // Medecin = owner
+      await get().joinExistingConsultation(roomUrl, "Doctor") // Assuming doctor joins first
     } catch (error: any) {
-      set({ callStatus: "error", error: { message: error.message, details: error.cause } })
+      set({ callStatus: "error", error: error.message })
     }
   },
 
-  joinExistingConsultation: async (roomUrl, userName, userType = "patient") => {
+  joinExistingConsultation: async (roomUrl, userName) => {
     const { callObject: existingCallObject } = get()
     if (existingCallObject) return
 
@@ -151,33 +143,12 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
     const co = Daily.createCallObject()
     set({ callObject: co })
 
-    // Extraire le roomName de l'URL (ex: https://xxx.daily.co/roomName)
-    const roomName = roomUrl.split("/").pop()
-
-    // Appeler le backend pour obtenir un token sécurisé
-    let token: string | undefined = undefined
-    try {
-      const tokenRes = await fetch("/api/daily/join", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ roomName, userName, userType }),
-      })
-      if (!tokenRes.ok) {
-        throw new Error("Impossible d'obtenir le token d'accès.")
-      }
-      const tokenData = await tokenRes.json()
-      token = tokenData.token
-    } catch (e: any) {
-      set({ callStatus: "error", error: { message: "Impossible d'obtenir le token d'accès." } })
-      return
-    }
-
     // Event listeners
     co.on("joined-meeting", () => set({ callStatus: "connected", participants: Object.values(co.participants()) }))
       .on("participant-updated", () => set({ participants: Object.values(co.participants()) }))
       .on("left-meeting", () => get().cleanup())
-      .on("error", (e) => set({ callStatus: "error", error: { message: e.errorMsg } }))
-      .on("camera-error", (e) => set({ error: { message: `Camera error: ${e.errorMsg}` } }))
+      .on("error", (e) => set({ callStatus: "error", error: e.errorMsg }))
+      .on("camera-error", (e) => set({ error: `Camera error: ${e.errorMsg}` }))
       .on("network-quality-change", (e) => set({ networkQuality: e.threshold === "good" ? "good" : "poor" }))
       .on("app-message", (e: DailyEventObjectAppMessage) => {
         const sender = e.fromId === co.participants().local.session_id
@@ -193,9 +164,10 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       })
 
     try {
-      await co.join({ url: roomUrl, token, userName })
+      // In a real app, fetch a token from your /api/daily/join endpoint first
+      await co.join({ url: roomUrl, userName })
     } catch (error: any) {
-      set({ callStatus: "error", error: { message: "Impossible de rejoindre l'appel." } })
+      set({ callStatus: "error", error: "Impossible de rejoindre l'appel." })
     }
   },
 
@@ -204,10 +176,11 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
   cleanup: () => {
     get().callObject?.destroy()
     set({
-      callStatus: "left",
+      callStatus: "ended",
       callObject: null,
       participants: [],
-      // roomUrl et roomName conservés pour éventuel résumé ou reconnexion
+      roomUrl: null,
+      roomName: null,
     })
   },
 
@@ -270,7 +243,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       set({ preCallTestStatus: "completed", networkTestResult: result })
       return result.quality >= 50
     } catch (error) {
-      set({ preCallTestStatus: "failed", error: { message: "Le test de connexion a échoué." } })
+      set({ preCallTestStatus: "failed", error: "Le test de connexion a échoué." })
       return false
     }
   },

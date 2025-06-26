@@ -1,50 +1,65 @@
-import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
+import { headers } from "next/headers"
+import crypto from "crypto"
 
-export async function POST(req: Request) {
+/**
+ * @route POST /api/daily/webhook
+ * @description Reçoit et traite les webhooks de Daily.co.
+ */
+export async function POST(request: Request) {
+  const webhookSecret = process.env.DAILY_WEBHOOK_SECRET
+  if (!webhookSecret) {
+    console.error("Le secret du webhook Daily (DAILY_WEBHOOK_SECRET) n'est pas configuré.")
+    return NextResponse.json({ error: "Configuration serveur incorrecte." }, { status: 500 })
+  }
+
   try {
-    const body = await req.json()
+    // 1. Lire le corps de la requête en tant que texte brut
+    const rawBody = await request.text()
+    const payload = JSON.parse(rawBody)
 
-    if (!body) {
-      return new NextResponse("Missing body", { status: 400 })
+    // 2. Vérifier la signature du webhook
+    const signatureHeader = headers().get("daily-signature")
+    if (!signatureHeader) {
+      return NextResponse.json({ error: "Signature manquante." }, { status: 401 })
     }
 
-    const { type, data } = body
+    const [timestamp, signature] = signatureHeader.split(",").map((part) => part.split("=")[1])
+    const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(`${timestamp}.${rawBody}`).digest("hex")
 
-    if (!type) {
-      return new NextResponse("Missing type", { status: 400 })
+    if (signature !== expectedSignature) {
+      console.warn("Tentative de webhook avec une signature invalide.")
+      return NextResponse.json({ error: "Signature invalide." }, { status: 401 })
     }
 
-    if (!data) {
-      return new NextResponse("Missing data", { status: 400 })
+    // 3. Traiter l'événement
+    const { type, room_name } = payload
+    console.log(`Webhook reçu: ${type} pour la salle ${room_name}`)
+
+    // Simuler la mise à jour de la base de données
+    switch (type) {
+      case "participant-joined":
+        console.log(
+          `[DB UPDATE] Mettre à jour le statut de la consultation pour ${room_name}: participant ${payload.participant.user_name} a rejoint.`,
+        )
+        // Exemple: await db.consultations.update({ where: { roomName: room_name }, data: { status: 'in-progress' } });
+        break
+      case "participant-left":
+        console.log(
+          `[DB UPDATE] Mettre à jour le statut de la consultation pour ${room_name}: participant ${payload.participant.user_name} a quitté.`,
+        )
+        break
+      case "room-destroyed":
+        console.log(`[DB UPDATE] Mettre à jour le statut de la consultation pour ${room_name}: terminée.`)
+        // Exemple: await db.consultations.update({ where: { roomName: room_name }, data: { status: 'completed', endedAt: new Date() } });
+        break
+      default:
+        console.log(`Événement non géré: ${type}`)
     }
 
-    if (type === "meeting.ended") {
-      const meetingTitle = data.properties?.find((prop: any) => prop.name === "title")?.value
-      const meetingId = data.id
-
-      if (!meetingTitle || !meetingId) {
-        console.warn("Missing meeting title or ID, skipping database update.")
-        return new NextResponse("Missing meeting title or ID", { status: 200 }) // Not an error, just skipping
-      }
-
-      const supabase = await createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!)
-
-      const { error } = await supabase.from("meetings").update({ ended: true }).eq("daily_meeting_id", meetingId)
-
-      if (error) {
-        console.error("Error updating meeting in database:", error)
-        return new NextResponse("Error updating meeting", { status: 500 })
-      }
-
-      console.log(`Meeting ${meetingTitle} (${meetingId}) marked as ended.`)
-      return new NextResponse("Meeting updated", { status: 200 })
-    } else {
-      console.log(`Received webhook of type ${type}, skipping.`)
-      return new NextResponse("Webhook received", { status: 200 })
-    }
+    return NextResponse.json({ status: "success" })
   } catch (error) {
-    console.error("Error processing webhook:", error)
-    return new NextResponse("Internal Server Error", { status: 500 })
+    console.error("Erreur lors du traitement du webhook Daily:", error)
+    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 })
   }
 }
