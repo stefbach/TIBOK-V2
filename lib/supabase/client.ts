@@ -17,3 +17,6 @@ export function getSupabaseBrowserClient() {
 
   return clientInstance
 }
+
+// Alias public côté client pour rester cohérent avec `lib/supabase/server.ts`
+export const createClient = getSupabaseBrowserClient
