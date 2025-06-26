@@ -13,4 +13,3 @@ export default async function Page() {
   const prescriptions = await getAiPrescriptions()
   return <AIPrescriptionsPage initialPrescription={prescriptions} />
 }
-
