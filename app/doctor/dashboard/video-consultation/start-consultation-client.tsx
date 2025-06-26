@@ -1,13 +1,13 @@
 "use client"
 
-import { useConsultationStore } from "@/stores/consultation-store"
+import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Loader2 } from "lucide-react"
+import { createClient } from "@/lib/supabase/client"
 
 interface Patient {
   id: string
@@ -19,94 +19,110 @@ interface StartConsultationClientProps {
   doctorId: string
 }
 
-export function StartConsultationClient({ patients, doctorId }: StartConsultationClientProps) {
-  const { startNewConsultation, callStatus, roomUrl, error } = useConsultationStore()
+export default function StartConsultationClient({ patients, doctorId }: StartConsultationClientProps) {
   const router = useRouter()
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
+  const [selectedPatient, setSelectedPatient] = useState<string>("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const handleStart = () => {
-    if (!selectedPatientId) {
-      alert("Veuillez sélectionner un patient.")
+  const supabase = createClient()
+
+  const handleStart = async () => {
+    if (!selectedPatient) {
+      setError("Veuillez sélectionner un patient.")
       return
     }
-    startNewConsultation(`consult-${Date.now()}`, doctorId, selectedPatientId)
-  }
 
-  useEffect(() => {
-    if (callStatus === "connected") {
-      router.push("/doctor/consultation-active")
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      /* 1️⃣ Créer (ou réutiliser) la salle Daily */
+      const roomRes = await fetch("/api/daily/room", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doctorId,
+          patientId: selectedPatient,
+          consultationId: `consult-${Date.now()}`,
+        }),
+      })
+
+      if (!roomRes.ok) {
+        const { error } = await roomRes.json()
+        throw new Error(error ?? "Erreur lors de la création de la salle.")
+      }
+
+      const { roomUrl, roomName } = await roomRes.json()
+
+      /* 2️⃣ Générer un token de connexion pour le médecin */
+      const tokenRes = await fetch("/api/daily/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomName,
+          userName: "Médecin",
+          userType: "doctor",
+        }),
+      })
+
+      if (!tokenRes.ok) {
+        const { error } = await tokenRes.json()
+        throw new Error(error ?? "Erreur lors de la génération du token Daily.")
+      }
+
+      const { token } = await tokenRes.json()
+
+      /* 3️⃣ Redirection vers l’interface de consultation */
+      router.push(
+        `/doctor/dashboard/video-consultation?roomUrl=${encodeURIComponent(roomUrl)}&token=${encodeURIComponent(token)}`,
+      )
+    } catch (err: any) {
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
     }
-  }, [callStatus, router])
-
-  const getSelectedPatientName = () => {
-    return patients.find((p) => p.id === selectedPatientId)?.full_name || ""
   }
 
   return (
-    <div className="flex flex-1 items-center justify-center p-4">
-      <Card className="w-full max-w-md bg-white shadow-lg rounded-lg">
+    <div className="flex items-center justify-center h-full">
+      <Card className="w-full max-w-lg">
         <CardHeader>
-          <CardTitle className="text-2xl font-bold text-gray-800">Démarrer une Consultation</CardTitle>
-          <CardDescription className="text-gray-600">
-            Sélectionnez un patient pour commencer la téléconsultation.
-          </CardDescription>
+          <CardTitle>Démarrer une Consultation</CardTitle>
         </CardHeader>
-        <CardContent>
-          <div className="flex flex-col space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="patient-select" className="font-semibold text-gray-700">
-                Choisir un patient
-              </Label>
-              <Select onValueChange={setSelectedPatientId} value={selectedPatientId || ""}>
-                <SelectTrigger id="patient-select" className="w-full">
-                  <SelectValue placeholder="Sélectionnez un patient..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {patients.length > 0 ? (
-                    patients.map((patient) => (
-                      <SelectItem key={patient.id} value={patient.id}>
-                        {patient.full_name || "Patient anonyme"}
-                      </SelectItem>
-                    ))
-                  ) : (
-                    <div className="p-4 text-sm text-gray-500">Aucun patient trouvé.</div>
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <Button
-              onClick={handleStart}
-              disabled={!selectedPatientId || callStatus === "preparing" || callStatus === "connecting"}
-              className="w-full bg-blue-600 text-white hover:bg-blue-700"
-            >
-              {callStatus === "preparing" || callStatus === "connecting" ? (
-                <Loader2 className="animate-spin mr-2" />
-              ) : null}
-              Démarrer avec {getSelectedPatientName()}
-            </Button>
-
-            {error && (
-              <div className="text-sm text-red-600 text-center p-3 bg-red-50 rounded-md border border-red-200">
-                <p className="font-bold">Erreur: {error.message || error}</p>
-              </div>
-            )}
-
-            {roomUrl && (
-              <div className="mt-4 p-3 bg-green-50 rounded-md border border-green-200 text-left">
-                <p className="text-sm font-semibold text-green-800">Salle créée avec succès !</p>
-                <p className="text-xs text-gray-700 mt-2">
-                  Partagez ce lien avec le patient :
-                  <br />
-                  <code className="block bg-gray-200 p-2 rounded mt-1 break-all text-blue-800 text-xs">
-                    {`${window.location.origin}/patient/pre-check?roomUrl=${encodeURIComponent(roomUrl)}`}
-                  </code>
-                </p>
-              </div>
-            )}
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Choisissez un patient</Label>
+            <Select value={selectedPatient} onValueChange={setSelectedPatient}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Sélectionnez un patient" />
+              </SelectTrigger>
+              <SelectContent>
+                {patients.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.full_name ?? p.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
+
+          {error && <p className="text-sm text-red-600">{error}</p>}
+
+          <Button onClick={handleStart} disabled={!selectedPatient || isLoading} className="w-full">
+            {isLoading ? (
+              <>
+                <Loader2 className="animate-spin mr-2 h-4 w-4" /> Création…
+              </>
+            ) : (
+              "Démarrer la consultation"
+            )}
+          </Button>
         </CardContent>
       </Card>
     </div>
   )
 }
+
+// Provide a named export expected by other modules
+export { StartConsultationClient }
