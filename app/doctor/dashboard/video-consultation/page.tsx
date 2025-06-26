@@ -1,104 +1,33 @@
-"use client"
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
+import { StartConsultationClient } from "./start-consultation-client"
 
-import { useConsultationStore } from "@/stores/consultation-store"
-import { useRouter } from "next/navigation"
-import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Label } from "@/components/ui/label"
-import { Loader2 } from "lucide-react"
+export default async function DoctorVideoConsultationPage() {
+  const supabase = createClient()
 
-// Données fictives. Dans une vraie application, cela viendrait de votre base de données.
-const mockPatients = [
-  { id: "pat-7a4b", name: "Alice Martin" },
-  { id: "pat-9c2d", name: "Bernard Dubois" },
-  { id: "pat-3e8f", name: "Chloé Petit" },
-]
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
-export default function DoctorVideoConsultationPage() {
-  const { startNewConsultation, callStatus, roomUrl, error } = useConsultationStore()
-  const router = useRouter()
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null)
-
-  const handleStart = () => {
-    if (!selectedPatientId) {
-      // Normalement, le bouton est désactivé, mais c'est une sécurité supplémentaire.
-      alert("Veuillez sélectionner un patient.")
-      return
-    }
-    // Utilisation d'un ID de médecin fixe et de l'ID du patient sélectionné.
-    startNewConsultation(`consult-${Date.now()}`, "doc-123", selectedPatientId)
+  if (!user) {
+    return redirect("/login")
   }
 
-  useEffect(() => {
-    // Quand la connexion est établie, rediriger vers la page de consultation active
-    if (callStatus === "connected") {
-      router.push("/doctor/consultation-active")
-    }
-  }, [callStatus, router])
+  // Fetch the doctor's profile to ensure they have the correct role
+  const { data: doctorProfile } = await supabase.from("profiles").select("role").eq("id", user.id).single()
 
-  const getSelectedPatientName = () => {
-    return mockPatients.find((p) => p.id === selectedPatientId)?.name || ""
+  if (doctorProfile?.role !== "doctor") {
+    // Or redirect to a generic dashboard or an error page
+    return redirect("/dashboard?error=unauthorized")
   }
 
-  return (
-    <div className="flex flex-1 items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Démarrer une Consultation</CardTitle>
-          <CardDescription>Sélectionnez un patient pour commencer la téléconsultation.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="patient-select">Choisir un patient</Label>
-              <Select onValueChange={setSelectedPatientId} value={selectedPatientId || ""}>
-                <SelectTrigger id="patient-select">
-                  <SelectValue placeholder="Sélectionnez un patient..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {mockPatients.map((patient) => (
-                    <SelectItem key={patient.id} value={patient.id}>
-                      {patient.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+  // Fetch all patients to populate the selection dropdown
+  const { data: patients, error } = await supabase.from("profiles").select("id, full_name").eq("role", "patient")
 
-            <Button
-              onClick={handleStart}
-              disabled={!selectedPatientId || callStatus === "preparing" || callStatus === "connecting"}
-            >
-              {callStatus === "preparing" || callStatus === "connecting" ? (
-                <Loader2 className="animate-spin mr-2" />
-              ) : null}
-              Démarrer la consultation avec {getSelectedPatientName()}
-            </Button>
+  if (error) {
+    // Handle error appropriately
+    return <div>Erreur lors de la récupération des patients: {error.message}</div>
+  }
 
-            {error && (
-              <div className="text-sm text-red-600 text-center p-2 bg-red-50 rounded-md">
-                <p className="font-bold">Erreur: {error.message || error}</p>
-                {error.details && <p className="text-xs mt-1">Détails: {JSON.stringify(error.details)}</p>}
-              </div>
-            )}
-
-            {roomUrl && (
-              <div className="mt-4 p-3 bg-gray-100 rounded-md text-left">
-                <p className="text-sm font-semibold text-green-700">Salle créée avec succès !</p>
-                <p className="text-xs text-gray-700 mt-2">
-                  Partagez ce lien avec le patient pour qu'il puisse vous rejoindre :
-                  <br />
-                  <code className="block bg-gray-200 p-2 rounded mt-1 break-all text-blue-800">
-                    {`${window.location.origin}/patient/pre-check?roomUrl=${encodeURIComponent(roomUrl)}`}
-                  </code>
-                </p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
+  return <StartConsultationClient patients={patients || []} doctorId={user.id} />
 }
