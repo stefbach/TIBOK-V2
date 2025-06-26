@@ -47,8 +47,18 @@ export async function POST(request: Request) {
     const room = await response.json()
 
     return NextResponse.json({ roomUrl: room.url, roomName: room.name })
-  } catch (error) {
-    console.error("Erreur interne dans /api/daily/room:", error)
-    return NextResponse.json({ error: "Erreur interne du serveur." }, { status: 500 })
+  } catch (error: any) {
+    console.error("Erreur interne dans /api/daily/room:", {
+      message: error.message,
+      stack: error.stack,
+    })
+
+    // Provide more details in development, but keep it generic in production
+    const errorMessage =
+      process.env.NODE_ENV === "development"
+        ? `Erreur interne du serveur: ${error.message}`
+        : "Erreur interne du serveur."
+
+    return NextResponse.json({ error: errorMessage }, { status: 500 })
   }
 }
