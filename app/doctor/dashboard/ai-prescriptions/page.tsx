@@ -1,5 +1,3 @@
-// PAS de "use client" ici !
-
 import AIPrescriptionsPage from "./AIPrescriptionsPage"
 
 async function getAiPrescriptions() {
