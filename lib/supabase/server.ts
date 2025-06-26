@@ -1,7 +1,8 @@
+"use server"
 import { createServerClient, type CookieOptions } from "@supabase/ssr"
 import { cookies } from "next/headers"
 
-export function createClient() {
+export async function createClient() {
   const cookieStore = cookies()
 
   // Create a supabase client on the server with project's credentials

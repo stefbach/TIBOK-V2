@@ -2,7 +2,10 @@
 
 import { createBrowserClient, type SupabaseClient } from "@supabase/ssr"
 
-let browserClient: SupabaseClient<any> | undefined
+/**
+ * Returns a singleton Supabase browser client.
+ */
+let browserClient: SupabaseClient<any> | null = null
 
 export function getSupabaseBrowserClient(): SupabaseClient<any> {
   if (!browserClient) {
@@ -10,7 +13,9 @@ export function getSupabaseBrowserClient(): SupabaseClient<any> {
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
     if (!url || !anonKey) {
-      throw new Error("NEXT_PUBLIC_SUPABASE_URL ou NEXT_PUBLIC_SUPABASE_ANON_KEY manquantes.")
+      throw new Error(
+        "Environment variables NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY must be defined.",
+      )
     }
 
     browserClient = createBrowserClient(url, anonKey)
@@ -18,7 +23,7 @@ export function getSupabaseBrowserClient(): SupabaseClient<any> {
   return browserClient
 }
 
-/* Alias attendu ailleurs dans le code */
+/* Alias kept for backward compatibility across the codebase. */
 export const createClient = getSupabaseBrowserClient
 
 export default getSupabaseBrowserClient

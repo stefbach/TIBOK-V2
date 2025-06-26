@@ -1,64 +1,61 @@
+import { createClient } from "@supabase/supabase-js"
 import { NextResponse } from "next/server"
-import { dailyApi } from "@/lib/daily"
 
-/**
- * @route POST /api/daily/room
- * @description Crée une nouvelle salle de consultation sur Daily.co.
- * @body { doctorId: string, patientId: string, consultationId: string }
- * @returns { roomUrl: string, roomName: string }
- */
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url)
+  const room_name = searchParams.get("room_name")
+
+  if (!room_name) {
+    return NextResponse.json({ error: "Missing room_name parameter" }, { status: 400 })
+  }
+
+  try {
+    const supabase = await createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
+
+    const { data: rooms, error } = await supabase.from("rooms").select("*").eq("room_name", room_name)
+
+    if (error) {
+      console.error("Error fetching room:", error)
+      return NextResponse.json({ error: "Failed to fetch room" }, { status: 500 })
+    }
+
+    if (!rooms || rooms.length === 0) {
+      return NextResponse.json({ error: "Room not found" }, { status: 404 })
+    }
+
+    return NextResponse.json(rooms[0])
+  } catch (e) {
+    console.error("Unexpected error:", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
+  }
+}
+
 export async function POST(request: Request) {
   try {
-    const { consultationId } = await request.json()
+    const { room_name, scheduled_time } = await request.json()
 
-    if (!consultationId) {
-      return NextResponse.json({ error: "consultationId est requis." }, { status: 400 })
+    if (!room_name || !scheduled_time) {
+      return NextResponse.json({ error: "Missing room_name or scheduled_time in request body" }, { status: 400 })
     }
 
-    const roomName = `tibok-consult-${consultationId}-${Date.now()}`
-    const twoHoursFromNow = Math.round(Date.now() / 1000) + 7200 // 2 heures
+    const supabase = await createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    )
 
-    const response = await dailyApi.post("/rooms", {
-      name: roomName,
-      privacy: "private",
-      properties: {
-        max_participants: 2,
-        start_video_off: false,
-        start_audio_off: false,
-        enable_recording: "cloud",
-        exp: twoHoursFromNow,
-        // Stocker des métadonnées utiles
-        eject_at_room_exp: true,
-        metadata: {
-          consultationId: consultationId,
-        },
-      },
-    })
+    const { data, error } = await supabase.from("rooms").insert([{ room_name, scheduled_time }]).select()
 
-    if (!response.ok) {
-      const errorData = await response.json()
-      console.error("Erreur lors de la création de la salle Daily:", errorData)
-      return NextResponse.json(
-        { error: "Impossible de créer la salle de consultation.", details: errorData },
-        { status: response.status },
-      )
+    if (error) {
+      console.error("Error creating room:", error)
+      return NextResponse.json({ error: "Failed to create room" }, { status: 500 })
     }
 
-    const room = await response.json()
-
-    return NextResponse.json({ roomUrl: room.url, roomName: room.name })
-  } catch (error: any) {
-    console.error("Erreur interne dans /api/daily/room:", {
-      message: error.message,
-      stack: error.stack,
-    })
-
-    // Provide more details in development, but keep it generic in production
-    const errorMessage =
-      process.env.NODE_ENV === "development"
-        ? `Erreur interne du serveur: ${error.message}`
-        : "Erreur interne du serveur."
-
-    return NextResponse.json({ error: errorMessage }, { status: 500 })
+    return NextResponse.json({ message: "Room created successfully", data }, { status: 201 })
+  } catch (e) {
+    console.error("Unexpected error:", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

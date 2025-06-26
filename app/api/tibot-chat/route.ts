@@ -1,57 +1,57 @@
-import { openai } from "@ai-sdk/openai"
-import { streamText, type CoreMessage } from "ai"
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs"
+import { cookies } from "next/headers"
+import { NextResponse } from "next/server"
 
-// IMPORTANT! Set the runtime to edge
-// export const runtime = 'edge'; // Removed as per instructions for AI SDK
+export const dynamic = "force-dynamic"
 
-export async function POST(req: Request) {
-  const { message, history, language }: { message: string; history: CoreMessage[]; language: "fr" | "en" } =
-    await req.json()
-
-  // Use the API key directly here.
-  // In a real production app, you'd use process.env.OPENAI_API_KEY
-  const apiKey =
-    "sk-proj-OFlTWIHBSEKhUCmLgLKcT3BlbkFJ8kOnzasPKcdKl1a77-JOc7dvp3y3kkz4UdCb28UJXCE22uEcrBNcEblCtRwGrI4-_bjkAtoKwA"
-
-  const systemPrompt =
-    language === "fr"
-      ? `Vous êtes TiBot, un assistant médical IA amical et serviable pour la plateforme TIBOK.
-      Votre rôle est de fournir des informations de santé générales, des conseils de base et d'orienter les utilisateurs vers des médecins si nécessaire.
-      Ne posez pas de diagnostic. Ne prescrivez pas de médicaments.
-      Soyez concis et clair. Répondez toujours en français.
-      Si la question est complexe ou nécessite un avis médical, conseillez de consulter un médecin TIBOK.
-      Si la question n'est pas liée à la santé, déclinez poliment.
-      Voici l'historique de la conversation (les messages les plus récents en dernier):`
-      : `You are TiBot, a friendly and helpful AI medical assistant for the TIBOK platform.
-      Your role is to provide general health information, basic advice, and guide users to doctors if necessary.
-      Do not diagnose. Do not prescribe medication.
-      Be concise and clear. Always respond in English.
-      If the question is complex or requires medical advice, advise consulting a TIBOK doctor.
-      If the question is not health-related, politely decline.
-      Here is the conversation history (most recent messages last):`
-
-  const messages: CoreMessage[] = [
-    { role: "system", content: systemPrompt },
-    ...history,
-    { role: "user", content: message },
-  ]
+export async function POST(request: Request) {
+  const cookieStore = cookies()
+  const supabase = await createRouteHandlerClient({ cookies: () => cookieStore })
 
   try {
-    const result = await streamText({
-      model: openai("gpt-4o"), // Pass API key here
-      messages,
-      temperature: 0.7,
-      maxTokens: 300,
+    const req = await request.json()
+    const { prompt } = req
+
+    if (!prompt) {
+      return NextResponse.json({ error: "Prompt is required" }, { status: 400 })
+    }
+
+    // Basic prompt injection prevention (can be improved)
+    if (prompt.toLowerCase().includes("ignore previous instructions")) {
+      return NextResponse.json({ error: "Prompt blocked due to potential injection" }, { status: 400 })
+    }
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: "gpt-3.5-turbo",
+        messages: [{ role: "user", content: prompt }],
+        stream: false,
+      }),
     })
 
-    // Respond with the stream
-    return result.toDataStreamResponse()
-  } catch (error) {
-    console.error("Error in TiBot API route:", error)
-    let errorMessage = "An unexpected error occurred."
-    if (error instanceof Error) {
-      errorMessage = error.message
+    if (!response.ok) {
+      console.error("OpenAI API Error:", response.status, response.statusText)
+      const errorData = await response.json()
+      console.error("OpenAI API Error Details:", errorData)
+      return NextResponse.json({ error: "Failed to generate response from OpenAI" }, { status: 500 })
     }
-    return Response.json({ error: "Failed to get response from AI.", details: errorMessage }, { status: 500 })
+
+    const data = await response.json()
+
+    if (!data.choices || data.choices.length === 0) {
+      return NextResponse.json({ error: "No response from OpenAI" }, { status: 500 })
+    }
+
+    const aiResponse = data.choices[0].message.content
+
+    return NextResponse.json({ output: aiResponse })
+  } catch (e) {
+    console.error("Server error:", e)
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }
