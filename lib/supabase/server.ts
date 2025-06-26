@@ -5,4 +5,3 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 export function createClient() {
   return createServerComponentClient({ cookies })
 }
-
