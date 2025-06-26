@@ -6,8 +6,6 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { useLanguage, type Language } from "@/contexts/language-context"
 import { translations, type TranslationKey } from "@/lib/translations"
-import { Button } from "@/components/ui/button"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Sheet, SheetContent } from "@/components/ui/sheet"
 import {
   HeartPulse,
@@ -19,12 +17,13 @@ import {
   UserCircle,
   FileSignature,
   LineChart,
-  Menu,
-  Sun,
-  Moon,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useTheme } from "next-themes" // Assuming you have theme provider
+import { createClient } from "@/lib/supabase/server"
+import { redirect } from "next/navigation"
+import DoctorSidebar from "@/components/doctor/doctor-sidebar"
+import DoctorHeader from "@/components/doctor/doctor-header"
 
 const getTranslation = (lang: Language, key: TranslationKey) => {
   return translations[lang]?.[key] || translations["en"]?.[key] || String(key)
@@ -37,11 +36,18 @@ interface NavItem {
   badge?: number
 }
 
-export default function DoctorDashboardLayout({
-  children,
-}: {
-  children: ReactNode
-}) {
+export default async function DoctorDashboardLayout({ children }: { children: ReactNode }) {
+  const supabase = createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) {
+    redirect("/login")
+  }
+
+  const { data: profile } = await supabase.from("profiles").select("full_name, avatar_url").eq("id", user.id).single()
+
   const { language, setLanguage } = useLanguage()
   const t = (key: TranslationKey) => getTranslation(language, key)
   const pathname = usePathname()
@@ -93,11 +99,9 @@ export default function DoctorDashboardLayout({
   )
 
   return (
-    <div className="flex h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="flex h-screen bg-gray-100 dark:bg-gray-900">
       {/* Desktop Sidebar */}
-      <aside className="w-64 bg-white dark:bg-gray-800 shadow-lg hidden md:block fixed h-full">
-        <SidebarContent />
-      </aside>
+      <DoctorSidebar />
 
       {/* Mobile Sidebar */}
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -106,75 +110,12 @@ export default function DoctorDashboardLayout({
         </SheetContent>
       </Sheet>
 
-      <div className="flex-1 flex flex-col md:ml-64">
+      <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <header className="bg-white dark:bg-gray-800 shadow-md border-b-2 border-blue-600 dark:border-blue-500">
-          <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <Button variant="ghost" size="icon" className="md:hidden mr-2" onClick={() => setMobileMenuOpen(true)}>
-                  <Menu className="h-6 w-6" />
-                </Button>
-                {/* Placeholder for breadcrumbs or current section title if needed */}
-              </div>
-
-              <div className="flex items-center space-x-4">
-                <div className="flex items-center p-1 bg-gray-100 dark:bg-gray-700 rounded-lg">
-                  <Button
-                    variant={language === "fr" ? "default" : "ghost"}
-                    size="sm"
-                    className={cn(
-                      "px-3 py-1 text-sm",
-                      language === "fr" ? "bg-blue-600 text-white" : "text-gray-600 dark:text-gray-300",
-                    )}
-                    onClick={() => setLanguage("fr")}
-                  >
-                    FR
-                  </Button>
-                  <Button
-                    variant={language === "en" ? "default" : "ghost"}
-                    size="sm"
-                    className={cn(
-                      "px-3 py-1 text-sm",
-                      language === "en" ? "bg-blue-600 text-white" : "text-gray-600 dark:text-gray-300",
-                    )}
-                    onClick={() => setLanguage("en")}
-                  >
-                    EN
-                  </Button>
-                </div>
-
-                <Button variant="ghost" size="icon" onClick={() => setTheme(theme === "light" ? "dark" : "light")}>
-                  {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-                  <span className="sr-only">Toggle theme</span>
-                </Button>
-
-                <div className="flex items-center space-x-2">
-                  <Avatar className="h-10 w-10">
-                    <AvatarImage src="/placeholder.svg?width=40&height=40" alt="Doctor Avatar" />
-                    <AvatarFallback>DR</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
-                      {t("doctorDashboardDoctorNamePlaceholder")}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      {t("doctorDashboardSpecialtyPlaceholder")}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center space-x-1.5">
-                  <div className="w-2.5 h-2.5 bg-green-500 rounded-full animate-pulse"></div>
-                  <span className="text-xs text-green-600 dark:text-green-400">{t("doctorDashboardStatusOnline")}</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </header>
+        <DoctorHeader user={user} profile={profile} />
 
         {/* Main Content */}
-        <main className="flex-1 p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-x-hidden overflow-y-auto bg-gray-100 dark:bg-gray-900 p-6">{children}</main>
       </div>
     </div>
   )
