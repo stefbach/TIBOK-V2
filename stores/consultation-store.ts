@@ -44,6 +44,11 @@ interface NetworkTestResult {
   recommendation: string
 }
 
+interface ErrorState {
+  message: string
+  details?: any
+}
+
 // --- État du Store ---
 
 interface ConsultationState {
@@ -54,7 +59,7 @@ interface ConsultationState {
   roomUrl: string | null
   roomName: string | null
   callObject: DailyCall | null
-  error: string | null
+  error: ErrorState | null
 
   // Media & Permissions
   mediaPermissions: { camera: boolean; audio: boolean }
@@ -115,7 +120,10 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
         body: JSON.stringify({ consultationId, doctorId, patientId }),
       })
 
-      if (!response.ok) throw new Error("Failed to create consultation room.")
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.error || "Failed to create consultation room.", { cause: errorData.details })
+      }
       const { roomUrl, roomName } = await response.json()
 
       const newConsultation: Consultation = {
@@ -131,7 +139,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
 
       await get().joinExistingConsultation(roomUrl, "Doctor") // Assuming doctor joins first
     } catch (error: any) {
-      set({ callStatus: "error", error: error.message })
+      set({ callStatus: "error", error: { message: error.message, details: error.cause } })
     }
   },
 
@@ -147,8 +155,8 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
     co.on("joined-meeting", () => set({ callStatus: "connected", participants: Object.values(co.participants()) }))
       .on("participant-updated", () => set({ participants: Object.values(co.participants()) }))
       .on("left-meeting", () => get().cleanup())
-      .on("error", (e) => set({ callStatus: "error", error: e.errorMsg }))
-      .on("camera-error", (e) => set({ error: `Camera error: ${e.errorMsg}` }))
+      .on("error", (e) => set({ callStatus: "error", error: { message: e.errorMsg } }))
+      .on("camera-error", (e) => set({ error: { message: `Camera error: ${e.errorMsg}` } }))
       .on("network-quality-change", (e) => set({ networkQuality: e.threshold === "good" ? "good" : "poor" }))
       .on("app-message", (e: DailyEventObjectAppMessage) => {
         const sender = e.fromId === co.participants().local.session_id
@@ -167,7 +175,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       // In a real app, fetch a token from your /api/daily/join endpoint first
       await co.join({ url: roomUrl, userName })
     } catch (error: any) {
-      set({ callStatus: "error", error: "Impossible de rejoindre l'appel." })
+      set({ callStatus: "error", error: { message: "Impossible de rejoindre l'appel." } })
     }
   },
 
@@ -176,11 +184,10 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
   cleanup: () => {
     get().callObject?.destroy()
     set({
-      callStatus: "ended",
+      callStatus: "left", // Changed from 'ended' to be more specific
       callObject: null,
       participants: [],
-      roomUrl: null,
-      roomName: null,
+      // Keep roomUrl and roomName for potential reconnection logic or summary screen
     })
   },
 
@@ -243,7 +250,7 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
       set({ preCallTestStatus: "completed", networkTestResult: result })
       return result.quality >= 50
     } catch (error) {
-      set({ preCallTestStatus: "failed", error: "Le test de connexion a échoué." })
+      set({ preCallTestStatus: "failed", error: { message: "Le test de connexion a échoué." } })
       return false
     }
   },
