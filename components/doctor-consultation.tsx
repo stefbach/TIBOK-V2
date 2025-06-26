@@ -56,7 +56,7 @@ const VideoTile = ({ participant }: { participant: any }) => {
   )
 }
 
-export default function DoctorConsultation() {
+export function DoctorConsultation() {
   const { callStatus, participants, isMicMuted, isCameraOff, toggleMicrophone, toggleCamera, leaveCall } =
     useConsultationStore()
   const [notes, setNotes] = useState("")
@@ -123,3 +123,5 @@ export default function DoctorConsultation() {
     </div>
   )
 }
+
+export default DoctorConsultation
