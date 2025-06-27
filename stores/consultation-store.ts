@@ -226,8 +226,9 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
 
   runPreCallTests: async () => {
     set({ preCallTestStatus: "testing", networkTestResult: null })
+    const callObject = Daily.createCallObject()
     try {
-      const testResults = await Daily.createCallObject().startWebsocketNetworkTest()
+      const testResults = await callObject.startWebsocketNetworkTest()
       const result: NetworkTestResult = {
         quality: testResults.quality,
         stats: {
@@ -245,6 +246,8 @@ export const useConsultationStore = create<ConsultationState>((set, get) => ({
     } catch (error) {
       set({ preCallTestStatus: "failed", error: "Le test de connexion a échoué." })
       return false
+    } finally {
+      callObject.destroy()
     }
   },
 
